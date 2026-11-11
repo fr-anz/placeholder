@@ -53,6 +53,9 @@ pub struct Task {
     pub files: Vec<String>,
     #[serde(default, alias = "dependsOn")]
     pub depends_on: Vec<String>,
+    /// A worker role id from `crate::roles`; `None` runs on the lead's settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Plan {
@@ -62,8 +65,8 @@ pub struct Plan {
 }
 pub const INSTRUCTIONS: &str = r#"Prepare an orchestration plan for the user's request. Inspect the project with read-only tools. Do not edit or launch workers yet. The user will review and start the plan in MonoCode.
 Return a short explanation followed by exactly one JSON block between <monocode_orchestration> and </monocode_orchestration>.
-Schema: {"title":"short title","summary":"approach","tasks":[{"id":"task-1","title":"assignment title","prompt":"complete self-contained instructions, validation and expected report","files":["src/path"],"depends_on":[]}]}
-Use 1 to 12 assignments, unique ASCII IDs, exact project-relative file or directory scopes ('.' for the whole project), and dependency IDs. Independent assignments may run concurrently (up to four); overlapping scopes run serially. Each worker uses this session's provider, model and access policy. Include verification in the assignments. Never claim that workers have already started."#;
+Schema: {"title":"short title","summary":"approach","tasks":[{"id":"task-1","title":"assignment title","prompt":"complete self-contained instructions, validation and expected report","files":["src/path"],"depends_on":[],"role":"role id or omit"}]}
+Use 1 to 12 assignments, unique ASCII IDs, exact project-relative file or directory scopes ('.' for the whole project), and dependency IDs. Independent assignments may run concurrently (up to four); overlapping scopes run serially. A worker without a role uses this session's provider, model and access policy. Include verification in the assignments. Never claim that workers have already started."#;
 pub fn parse(text: &str) -> Result<Plan, String> {
     let body = text
         .split_once("<monocode_orchestration>")
@@ -150,6 +153,26 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
         }
     }
 }
+/// The planning instructions, with the worker roles the plan may assign.
+pub fn instructions(roles: &[crate::roles::Role]) -> String {
+    let brief = crate::roles::planning_brief(roles);
+    if brief.is_empty() {
+        INSTRUCTIONS.to_owned()
+    } else {
+        format!("{INSTRUCTIONS}\n{brief}")
+    }
+}
+/// Rejects assignments that name a role that does not exist.
+pub fn validate_roles(plan: &Plan, roles: &[crate::roles::Role]) -> Result<(), String> {
+    for task in &plan.tasks {
+        if let Some(id) = &task.role {
+            if crate::roles::find(roles, Some(id)).is_none() {
+                return Err(format!("Assignment {} names unknown role \"{id}\".", task.id));
+            }
+        }
+    }
+    Ok(())
+}
 pub fn overlaps(a: &[String], b: &[String]) -> bool {
     a.iter().any(|a| {
         b.iter().any(|b| {
@@ -157,7 +180,14 @@ pub fn overlaps(a: &[String], b: &[String]) -> bool {
         })
     })
 }
-pub fn worker_prompt(task: &Task, previous: &str) -> String {
+pub fn worker_prompt(task: &Task, previous: &str, role: Option<&crate::roles::Role>) -> String {
+    let base = base_worker_prompt(task, previous);
+    match role.map(|r| r.instructions.trim()).filter(|i| !i.is_empty()) {
+        Some(instructions) => format!("{instructions}\n\n{base}"),
+        None => base,
+    }
+}
+fn base_worker_prompt(task: &Task, previous: &str) -> String {
     format!("You are completing assignment {} in a MonoCode orchestration.\n{}\n\n{}\n\nWrite only within these project-relative scopes: {}. Other agents may work in this checkout; preserve their changes and do not reset the repository. If you need a change outside your scopes, report the blocker. Run focused checks and report your changes, validation and any remaining issues.\n\nDependency reports:\n{}", task.id, task.title, task.prompt, task.files.join(", "), previous)
 }
 #[cfg(test)]
@@ -170,6 +200,7 @@ mod tests {
             prompt: "Work".into(),
             files: vec![file.into()],
             depends_on: deps.iter().map(|s| (*s).into()).collect(),
+            role: None,
         }
     }
     #[test]
@@ -186,5 +217,20 @@ mod tests {
         assert!(validate(&plan).is_err());
         assert!(overlaps(&["src".into()], &["src/main.rs".into()]));
         assert!(!overlaps(&["src".into()], &["src2/main.rs".into()]));
+    }
+    #[test]
+    fn roles_are_parsed_validated_and_prefix_worker_prompts() {
+        let plan: Plan = serde_json::from_str(r#"{"title":"t","summary":"s","tasks":[{"id":"a","title":"Map","prompt":"Look","files":["src"],"role":"scout"},{"id":"b","title":"Fix","prompt":"Do","files":["src"],"dependsOn":["a"]}]}"#).unwrap();
+        assert_eq!(plan.tasks[0].role.as_deref(), Some("scout"));
+        assert_eq!(plan.tasks[1].role, None);
+        let roles = crate::roles::defaults();
+        validate_roles(&plan, &roles).unwrap();
+        let mut unknown = plan.clone();
+        unknown.tasks[1].role = Some("ghost".into());
+        assert!(validate_roles(&unknown, &roles).is_err());
+        let prompt = worker_prompt(&plan.tasks[0], "", crate::roles::find(&roles, Some("scout")));
+        assert!(prompt.starts_with("You are a scout."));
+        assert!(worker_prompt(&plan.tasks[1], "", None).starts_with("You are completing assignment b"));
+        assert!(instructions(&roles).contains("`review` Reviewer"));
     }
 }

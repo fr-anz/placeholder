@@ -17,7 +17,11 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(test))]
 pub const APP_ID: &str = "io.github.fr_anz.placeholder";
+/// The signed feed fixtures in `fixtures/` were issued for upstream's app ID.
+#[cfg(test)]
+pub const APP_ID: &str = "dev.usemono.gpui";
 pub const CHANNEL: &str = "native-preview";
 const MAX_FEED: u64 = 2 * 1024 * 1024;
 const MAX_PACKAGE: u64 = 1024 * 1024 * 1024;

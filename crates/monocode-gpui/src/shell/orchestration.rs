@@ -4,6 +4,7 @@ use super::*;
 use monocode_core::{
     agent::Settings,
     orchestration::{self, Plan, Task},
+    roles,
 };
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -17,14 +18,16 @@ enum State {
 
 struct Assignment {
     task: Task,
+    /// Resolved from the task's worker role when the run starts.
+    provider: String,
+    settings: Settings,
+    role: Option<roles::Role>,
     session: Option<i64>,
     state: State,
     report: String,
 }
 pub(super) struct Run {
     cwd: String,
-    provider: String,
-    settings: Settings,
     tasks: Vec<Assignment>,
     stopped: bool,
 }
@@ -52,7 +55,12 @@ impl Shell {
         if self.orchestrations.contains_key(&lead) {
             return;
         }
-        if let Err(error) = orchestration::validate(&plan) {
+        let worker_roles = locked(&self.store)
+            .map(|store| roles::load(&store))
+            .unwrap_or_else(|_| roles::defaults());
+        if let Err(error) = orchestration::validate(&plan)
+            .and_then(|()| orchestration::validate_roles(&plan, &worker_roles))
+        {
             self.error = Some(error);
             cx.notify();
             return;
@@ -87,19 +95,24 @@ impl Shell {
         let tasks = plan
             .tasks
             .into_iter()
-            .map(|task| Assignment {
-                task,
-                session: None,
-                state: State::Pending,
-                report: String::new(),
+            .map(|task| {
+                let role = roles::find(&worker_roles, task.role.as_deref()).cloned();
+                let (provider, settings) = roles::apply(role.as_ref(), &provider, &settings);
+                Assignment {
+                    task,
+                    provider,
+                    settings,
+                    role,
+                    session: None,
+                    state: State::Pending,
+                    report: String::new(),
+                }
             })
             .collect();
         self.orchestrations.insert(
             lead,
             Run {
                 cwd,
-                provider,
-                settings,
                 tasks,
                 stopped: false,
             },
@@ -212,9 +225,10 @@ impl Shell {
                     ix,
                     task.task.clone(),
                     run.cwd.clone(),
-                    run.provider.clone(),
-                    run.settings.clone(),
+                    task.provider.clone(),
+                    task.settings.clone(),
                     reports.clone(),
+                    task.role.clone(),
                 ));
             }
         }
@@ -253,8 +267,8 @@ impl Shell {
                 .map(|t| orchestration::SummaryTask {
                     session: t.session,
                     title: t.task.title.clone(),
-                    provider: run.provider.clone(),
-                    model: run.settings.model.clone(),
+                    provider: t.provider.clone(),
+                    model: t.settings.model.clone(),
                     status: match t.state {
                         State::Pending | State::Starting => "queued",
                         State::Running => "running",
@@ -319,7 +333,7 @@ impl Shell {
                 }
             }
         }
-        for (ix, task, cwd, provider, mut settings, reports) in jobs {
+        for (ix, task, cwd, provider, mut settings, reports, role) in jobs {
             let store = self.store.clone();
             let project = self.sessions[&lead].read(cx).summary.cwd.clone();
             let work = cx.background_executor().spawn(async move {
@@ -344,14 +358,15 @@ impl Shell {
                 }
                 let store = locked(&store)?;
                 let mut summary = store.create(&provider, &project)?;
-                summary.title = format!("Agent · {}", task.title);
+                let who = role.as_ref().map_or("Agent", |r| r.label.as_str());
+                summary.title = format!("{who} · {}", task.title);
                 store.title(summary.id, &summary.title)?;
                 settings.worktree_cwd = Some(cwd);
                 store.save_agent_settings(summary.id, &settings)?;
                 Ok::<_, String>((
                     summary,
                     settings,
-                    orchestration::worker_prompt(&task, &reports),
+                    orchestration::worker_prompt(&task, &reports, role.as_ref()),
                 ))
             });
             cx.spawn(async move |this, cx| {
@@ -414,6 +429,7 @@ mod tests {
                         prompt: "Inspect and report".into(),
                         files: vec![file.into()],
                         depends_on: Vec::new(),
+                        role: None,
                     })
                     .collect();
                 shell.start_orchestration(

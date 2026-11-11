@@ -41,6 +41,7 @@ pub mod visual_bridge;
 pub mod composer;
 pub mod contributions;
 pub mod orchestration;
+pub mod roles;
 pub mod skills;
 
 pub mod search;

@@ -546,7 +546,9 @@ fn run_turn_using(
         if !raw_native_command && settings.orchestrator {
             prompt = format!(
                 "{}\n\nUser request:\n{prompt}",
-                monocode_core::orchestration::INSTRUCTIONS
+                monocode_core::orchestration::instructions(&monocode_core::roles::load(
+                    &*locked(&store)?
+                ))
             );
         }
         if !raw_native_command && settings.operator_enabled {
