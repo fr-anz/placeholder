@@ -619,6 +619,7 @@ impl Shell {
                     ("Inbox", "inbox"),
                     ("Notes", "file"),
                     ("Automations", "zap"),
+                    ("Board", "dashboard"),
                 ]
                 .into_iter()
                 .filter(|(label, _)| match *label {
@@ -667,6 +668,7 @@ impl Shell {
                             "Inbox" => this.open_inbox(w, cx),
                             "Notes" => this.open_notes(w, cx),
                             "Automations" => this.open_automations(w, cx),
+                            "Board" => this.open_board(w, cx),
                             _ => (),
                         }))
                 }),
@@ -846,6 +848,7 @@ impl Shell {
                         workspace::AppView::Automations,
                         self.workspace.sidebar_automations_visible,
                     ),
+                    (workspace::AppView::Board, true),
                 ]
                 .into_iter()
                 .filter(|(_, v)| *v)
@@ -861,6 +864,7 @@ impl Shell {
                             workspace::AppView::Inbox => "rail-inbox",
                             workspace::AppView::Notes => "rail-notes",
                             workspace::AppView::Automations => "rail-automations",
+                            workspace::AppView::Board => "rail-board",
                         },
                         view.label(),
                         glyph,
@@ -887,6 +891,7 @@ impl Shell {
                                 workspace::AppView::Inbox => this.open_inbox(w, cx),
                                 workspace::AppView::Notes => this.open_notes(w, cx),
                                 workspace::AppView::Automations => this.open_automations(w, cx),
+                                workspace::AppView::Board => this.open_board(w, cx),
                             }
                         }
                     }))

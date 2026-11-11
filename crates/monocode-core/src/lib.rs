@@ -42,6 +42,7 @@ pub mod composer;
 pub mod contributions;
 pub mod orchestration;
 pub mod roles;
+pub mod board;
 pub mod skills;
 
 pub mod search;

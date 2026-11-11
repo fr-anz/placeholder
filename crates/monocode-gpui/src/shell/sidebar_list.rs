@@ -715,6 +715,7 @@ impl Shell {
                     ("Inbox", "inbox"),
                     ("Notes", "note"),
                     ("Automations", "zap"),
+                    ("Board", "dashboard"),
                 ]
                 .into_iter()
                 .filter(|(label, _)| match *label {
@@ -816,6 +817,7 @@ impl Shell {
                             "Inbox" => this.open_inbox(window, cx),
                             "Notes" => this.open_notes(window, cx),
                             "Automations" => this.open_automations(window, cx),
+                            "Board" => this.open_board(window, cx),
                             _ => (),
                         }))
                         .on_hover(cx.listener(move |this, hovered, _, cx| {

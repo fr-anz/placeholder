@@ -2,6 +2,7 @@ mod accounts;
 mod actions;
 mod app_commands;
 mod app_views;
+mod board;
 mod automation_runs;
 mod classic_sidebar;
 #[cfg(test)]
@@ -715,6 +716,7 @@ pub(crate) struct Shell {
     note_count: Option<usize>,
     inbox: Option<Entity<crate::inbox::Inbox>>,
     automations: Option<Entity<crate::automations::Automations>>,
+    board: Option<Entity<crate::board::Board>>,
     active_app_view: Option<app_views::AppView>,
     app_view_events: Vec<Subscription>,
     automation_state: automation_runs::State,
@@ -1100,6 +1102,7 @@ impl Shell {
             note_count: None,
             inbox: None,
             automations: None,
+            board: None,
             active_app_view: None,
             app_view_events: Vec::new(),
             automation_state: Default::default(),
@@ -1423,6 +1426,7 @@ impl Shell {
                 }
                 this.sync_search_session(id, cx);
                 this.orchestration_session_changed(id, cx);
+                this.sync_board(cx);
                 this.automation_session_changed(id, cx);
                 this.sync_review_locks(cx);
                 this.refresh_session_mark(id, cx);

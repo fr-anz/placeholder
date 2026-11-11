@@ -4,6 +4,7 @@
 )]
 
 mod identity;
+mod board;
 mod accounts;
 mod activity;
 mod app_log;

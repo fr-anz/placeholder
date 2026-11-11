@@ -14,6 +14,7 @@ impl Shell {
             AppView::Inbox => "Inbox",
             AppView::Notes => "Notes",
             AppView::Automations => "Automations",
+            AppView::Board => "Board",
         })
     }
 
@@ -183,7 +184,7 @@ impl Shell {
         cx.notify();
     }
 
-    fn prepare_app_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn prepare_app_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.leave_app_search(cx);
         self.close_preview(cx);
         self.close_menu(cx);
@@ -198,7 +199,7 @@ impl Shell {
         self.pending_composer_focus = None;
     }
 
-    fn show_app_view(&mut self, view: AppView, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn show_app_view(&mut self, view: AppView, window: &mut Window, cx: &mut Context<Self>) {
         if self.active_app_view != Some(view) {
             self.leave_app_views(cx);
         }
@@ -220,6 +221,7 @@ impl Shell {
             AppView::Notes => self.notes.clone().map(IntoElement::into_any_element),
             AppView::Inbox => self.inbox.clone().map(IntoElement::into_any_element),
             AppView::Automations => self.automations.clone().map(IntoElement::into_any_element),
+            AppView::Board => self.board.clone().map(IntoElement::into_any_element),
         }
     }
 
@@ -230,6 +232,7 @@ impl Shell {
             Some(AppView::Automations) => {
                 self.automations.as_ref().map(|view| view.focus_handle(cx))
             }
+            Some(AppView::Board) => self.board.as_ref().map(|view| view.focus_handle(cx)),
             None => return false,
         };
         if let Some(focus) = focus {
