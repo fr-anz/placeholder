@@ -15,6 +15,7 @@ pub(crate) enum Section {
     Mcp,
     Skills,
     Monos,
+    Roles,
     Inbox,
     Archive,
     Worktrees,
@@ -38,6 +39,7 @@ pub(crate) const GROUPS: [(&str, &[Section]); 3] = [
             Section::Mcp,
             Section::Skills,
             Section::Monos,
+            Section::Roles,
         ],
     ),
     (
@@ -47,7 +49,7 @@ pub(crate) const GROUPS: [(&str, &[Section]); 3] = [
 ];
 
 impl Section {
-    pub(crate) const ALL: [Section; 12] = [
+    pub(crate) const ALL: [Section; 13] = [
         Section::General,
         Section::Connections,
         Section::Appearance,
@@ -57,6 +59,7 @@ impl Section {
         Section::Mcp,
         Section::Skills,
         Section::Monos,
+        Section::Roles,
         Section::Inbox,
         Section::Archive,
         Section::Worktrees,
@@ -72,6 +75,7 @@ impl Section {
             Section::Mcp => "mcp",
             Section::Skills => "skills",
             Section::Monos => "monos",
+            Section::Roles => "roles",
             Section::Inbox => "inbox",
             Section::Archive => "archive",
             Section::Worktrees => "worktrees",
@@ -88,6 +92,7 @@ impl Section {
             Section::Mcp => "MCP",
             Section::Skills => "Skills",
             Section::Monos => "Monos",
+            Section::Roles => "Worker roles",
             Section::Inbox => "Inbox",
             Section::Archive => "Archive",
             Section::Worktrees => "Worktrees",
@@ -116,6 +121,9 @@ impl Section {
                 "Discover and manage file skills from project, personal, and harness folders."
             }
             Section::Monos => "The resident agent beside your tabs, and which projects have one.",
+            Section::Roles => {
+                "Presets orchestration assignments run on: each role's provider, model, access and instructions."
+            }
             Section::Inbox => {
                 "Manage Inbox services and notification preferences for each project."
             }
@@ -142,6 +150,9 @@ impl Section {
             }
             Section::Skills => "skill instructions prompt",
             Section::Monos => "mono resident agent mascot claim project title bar",
+            Section::Roles => {
+                "worker role scout implementer reviewer orchestration model provider subscription"
+            }
             Section::Inbox => {
                 "github gitlab linear jira atlassian azure devops connect token integration"
             }
@@ -161,6 +172,7 @@ impl Section {
             Section::Mcp => "globe",
             Section::Skills => "sparkles",
             Section::Monos => "ghost",
+            Section::Roles => "account-user",
             Section::Inbox => "inbox-hi",
             Section::Archive => "archive",
             Section::Worktrees => "folder-tree",

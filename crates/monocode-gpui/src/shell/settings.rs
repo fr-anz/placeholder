@@ -105,6 +105,9 @@ impl Shell {
                         .collect()
                 })
                 .unwrap_or_default(),
+            roles: locked(&self.store)
+                .map(|store| monocode_core::roles::load(&store))
+                .unwrap_or_else(|_| monocode_core::roles::defaults()),
             catalogs,
             classic: self.workspace.classic_layout,
             new_layout_boxy: self.workspace.new_layout_boxy,
@@ -238,6 +241,19 @@ impl Shell {
                 SettingsEvent::MonoSidebar(id, show, folders) => {
                     if let Some(m) = this.monos.clone() {
                         m.update(cx, |m, cx| m.sidebar_preferences(id, *show, *folders, cx));
+                    }
+                    this.sync_settings(cx);
+                }
+                SettingsEvent::SaveRoles(roles) => {
+                    let roles = if roles.is_empty() {
+                        monocode_core::roles::defaults()
+                    } else {
+                        roles.clone()
+                    };
+                    let result = locked(&this.store)
+                        .and_then(|store| monocode_core::roles::save(&store, &roles));
+                    if let Some(settings) = &this.settings {
+                        settings.update(cx, |s, cx| s.management_finished(result, cx));
                     }
                     this.sync_settings(cx);
                 }

@@ -112,6 +112,31 @@ pub fn save(store: &crate::store::Store, roles: &[Role]) -> Result<(), String> {
     store.save_setting(SETTING_KEY, &json)
 }
 
+/// A new role id from its label, unique among `roles`.
+pub fn new_id(label: &str, roles: &[Role]) -> String {
+    let mut base: String = label
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    while base.contains("--") {
+        base = base.replace("--", "-");
+    }
+    let mut base = base.trim_matches('-').to_owned();
+    base.truncate(32);
+    if base.is_empty() {
+        base = "role".into();
+    }
+    let mut id = base.clone();
+    let mut n = 2;
+    while roles.iter().any(|r| r.id == id) {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    id
+}
+
 pub fn find<'a>(roles: &'a [Role], id: Option<&str>) -> Option<&'a Role> {
     id.and_then(|id| roles.iter().find(|role| role.id == id))
 }
@@ -162,7 +187,12 @@ pub fn planning_brief(roles: &[Role]) -> String {
                 (Some(p), None) => format!(" (runs on {p})"),
                 _ => String::new(),
             };
-            format!("- `{}` {}{runs_on}: {}", role.id, role.label, role.description)
+            let about = if role.description.trim().is_empty() {
+                role.instructions.lines().next().unwrap_or_default()
+            } else {
+                role.description.as_str()
+            };
+            format!("- `{}` {}{runs_on}: {about}", role.id, role.label)
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -243,6 +273,15 @@ mod tests {
         assert_eq!(load(&store), roles);
         store.save_setting(SETTING_KEY, "not json").unwrap();
         assert_eq!(load(&store), defaults());
+    }
+
+    #[test]
+    fn new_ids_are_slugs_unique_among_roles() {
+        let roles = defaults();
+        assert_eq!(new_id("Test Writer!", &roles), "test-writer");
+        assert_eq!(new_id("Scout", &roles), "scout-2");
+        assert_eq!(new_id("  ", &roles), "role");
+        assert!(valid_id(&new_id("Ünïcode reviewer", &roles)));
     }
 
     #[test]

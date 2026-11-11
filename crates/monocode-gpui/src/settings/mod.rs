@@ -47,6 +47,8 @@ pub(crate) struct SettingsContext {
     /// The desktop's shared remote connection and SSH setup service.
     pub remote: Option<std::sync::Arc<monocode_core::remote::Connections>>,
     pub monos: Vec<MonoSetting>,
+    /// Worker roles orchestration assignments can name.
+    pub roles: Vec<monocode_core::roles::Role>,
     pub classic: bool,
     pub new_layout_boxy: bool,
     /// The selected project, or empty outside one.
@@ -74,6 +76,7 @@ impl PartialEq for SettingsContext {
             _ => {}
         }
         self.monos == other.monos
+            && self.roles == other.roles
             && self.classic == other.classic
             && self.new_layout_boxy == other.new_layout_boxy
             && self.cwd == other.cwd
@@ -123,6 +126,8 @@ pub(crate) enum SettingsEvent {
     },
     ResetMono(String),
     MonoSidebar(String, bool, bool),
+    /// Replace the worker roles; an empty list restores the defaults.
+    SaveRoles(Vec<monocode_core::roles::Role>),
     /// Read mobile access again: the router and pairing change on their own.
     MobileRefresh,
     MobileConfigure {

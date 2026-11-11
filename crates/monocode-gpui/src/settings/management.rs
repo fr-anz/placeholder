@@ -11,6 +11,8 @@ pub(super) enum Target {
     Worktree,
     DeleteTree(data::Tree),
     ResetMono(super::MonoSetting),
+    /// Edit a worker role by id, or add one with `None`.
+    Role(Option<String>),
 }
 pub(super) struct Editor {
     pub target: Target,
@@ -43,6 +45,7 @@ impl SettingsView {
             Target::Cli(_) => ("CLI path", "Auto-detected path"),
             Target::Mcp => ("Name (optional with mcpServers)", "my-server"),
             Target::Skill => ("Skill name", "skill-name"),
+            Target::Role(_) => ("Role name", "Test writer"),
             _ => ("New branch name", "feature/my-task"),
         };
         let name = cx.new(|cx| {
@@ -68,7 +71,18 @@ impl SettingsView {
                 input.set_text(monocode_core::skills::slug_name(&self.skill_query), cx);
             });
         }
-        let body=cx.new(|cx|Input::multiline_field("JSON configuration", "{\"mcpServers\":{\"my-server\":{\"command\":\"npx\",\"args\":[\"-y\",\"example-mcp\"]}}}",cx));
+        let body = if matches!(target, Target::Role(_)) {
+            cx.new(|cx| Input::multiline_field("Instructions", "Prepended to every assignment this role receives.", cx))
+        } else {
+            cx.new(|cx|Input::multiline_field("JSON configuration", "{\"mcpServers\":{\"my-server\":{\"command\":\"npx\",\"args\":[\"-y\",\"example-mcp\"]}}}",cx))
+        };
+        if let Target::Role(Some(id)) = &target
+            && let Some(role) = self.ctx.roles.iter().find(|r| &r.id == id)
+        {
+            let (label, instructions) = (role.label.clone(), role.instructions.clone());
+            name.update(cx, |input, cx| input.set_text(label, cx));
+            body.update(cx, |input, cx| input.set_text(instructions, cx));
+        }
         let subscriptions = vec![
             cx.subscribe(&name, |_, _, _: &input::Changed, cx| cx.notify()),
             cx.subscribe(&body, |_, _, _: &input::Changed, cx| cx.notify()),
@@ -224,11 +238,33 @@ impl SettingsView {
         let scope = editor.scope.clone();
         let base = editor.base.clone();
         let existing = editor.existing;
-        if matches!(target, Target::Worktree | Target::Skill) && name.is_empty() {
+        if matches!(target, Target::Worktree | Target::Skill | Target::Role(_)) && name.is_empty() {
             return;
         }
         editor.busy = true;
         editor.error = None;
+        if let Target::Role(id) = target {
+            let mut roles = self.ctx.roles.clone();
+            let instructions = body.trim().to_owned();
+            match id.and_then(|id| roles.iter_mut().find(|r| r.id == id)) {
+                Some(role) => {
+                    role.label = name;
+                    role.instructions = instructions;
+                }
+                None => {
+                    let id = monocode_core::roles::new_id(&name, &roles);
+                    roles.push(monocode_core::roles::Role {
+                        id,
+                        label: name,
+                        instructions,
+                        ..Default::default()
+                    });
+                }
+            }
+            cx.emit(SettingsEvent::SaveRoles(roles));
+            cx.notify();
+            return;
+        }
         if let Target::ResetMono(mono) = target {
             cx.emit(SettingsEvent::ResetMono(mono.id));
             cx.notify();
@@ -461,6 +497,11 @@ impl SettingsView {
                 rows.push(form_field("Name (optional with mcpServers)", name, 32.));
                 rows.push(form_field("JSON configuration", body, 140.));
                 rows.push(note("Paste one entry from an mcpServers block, or a single server object with a name above."));
+            }
+            Target::Role(_) => {
+                rows.push(form_field("Role name", name, 32.));
+                rows.push(form_field("Instructions", body, 160.));
+                rows.push(note("Choose the provider, model and access for this role on the Worker roles page."));
             }
             Target::Skill => {
                 rows.push(form_field("Skill name", name, 32.));
@@ -729,6 +770,8 @@ impl SettingsView {
                 }
             }
             Target::Worktree => "Create worktree",
+            Target::Role(None) => "Add role",
+            Target::Role(Some(_)) => "Save role",
             Target::ResetMono(_) => {
                 if busy {
                     "Resetting…"
@@ -786,6 +829,8 @@ impl SettingsView {
             Target::Worktree => "Create worktree".into(),
             Target::DeleteTree(_) => "Delete worktree?".into(),
             Target::ResetMono(ref mono) => format!("Reset {} to its defaults?", mono.name),
+            Target::Role(None) => "New worker role".into(),
+            Target::Role(Some(_)) => "Edit worker role".into(),
             _ => String::new(),
         };
         let form = self.management_form(cx);

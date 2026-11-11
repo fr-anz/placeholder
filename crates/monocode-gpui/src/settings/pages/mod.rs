@@ -10,6 +10,7 @@ mod mcp;
 mod mobile;
 mod monos;
 mod providers;
+mod roles;
 mod skills;
 mod worktrees;
 
@@ -40,6 +41,7 @@ impl SettingsView {
             Section::Mcp => self.mcp_page(cx),
             Section::Skills => self.skills_page(cx),
             Section::Monos => self.monos_page(cx),
+            Section::Roles => self.roles_page(cx),
             Section::Inbox => self.inbox_page(cx),
             Section::Archive => self.archive_page(cx),
             Section::Worktrees => self.worktrees_page(cx),
