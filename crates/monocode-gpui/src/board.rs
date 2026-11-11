@@ -18,6 +18,8 @@ pub(crate) enum Event {
     OpenSession(i64),
     /// Start a backlog card: the shell creates its coordinator session.
     Start(Card),
+    /// Ask the board orchestrator: the shell opens a fresh session for it.
+    Ask(String),
 }
 
 pub(crate) struct Board {
@@ -28,6 +30,7 @@ pub(crate) struct Board {
     states: HashMap<i64, LeadState>,
     title: Entity<Input>,
     details: Entity<Input>,
+    ask: Entity<Input>,
     error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
@@ -57,9 +60,19 @@ impl Board {
             input.set_max_height(160.);
             input
         });
+        let ask = cx.new(|cx| {
+            Input::field(
+                "Ask the board orchestrator",
+                "Ask the orchestrator to plan, split or start cards…",
+                content(0.35),
+                cx,
+            )
+        });
         let subscriptions = vec![
             cx.subscribe(&title, |this, _, _: &input::Submitted, cx| this.add(cx)),
             cx.subscribe(&title, |_, _, _: &input::Changed, cx| cx.notify()),
+            cx.subscribe(&ask, |this, _, _: &input::Submitted, cx| this.ask(cx)),
+            cx.subscribe(&ask, |_, _, _: &input::Changed, cx| cx.notify()),
         ];
         Self {
             store,
@@ -69,6 +82,7 @@ impl Board {
             states: HashMap::new(),
             title,
             details,
+            ask,
             error: None,
             _subscriptions: subscriptions,
         }
@@ -144,9 +158,13 @@ impl Board {
         self.refresh(cx);
     }
 
-    /// The shell calls this once the coordinator session exists.
-    pub(crate) fn started(&mut self, id: &str, lead: i64, cx: &mut Context<Self>) {
-        self.change(id, |c| c.lead = Some(lead), cx);
+    fn ask(&mut self, cx: &mut Context<Self>) {
+        let message = self.ask.read(cx).content.trim().to_owned();
+        if message.is_empty() || self.cwd.is_empty() {
+            return;
+        }
+        self.ask.update(cx, |i, cx| i.set_text(String::new(), cx));
+        cx.emit(Event::Ask(message));
     }
 
     fn state(&self, card: &Card) -> Option<LeadState> {
@@ -269,6 +287,29 @@ impl gpui::Render for Board {
                 .push(card.clone());
         }
         let can_add = !self.title.read(cx).content.trim().is_empty() && !self.cwd.is_empty();
+        let can_ask = !self.ask.read(cx).content.trim().is_empty() && !self.cwd.is_empty();
+        let orchestrator = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .flex_1()
+                    .h(px(32.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(content(0.1))
+                    .bg(content(0.04))
+                    .child(div().flex_1().min_w_0().child(self.ask.clone())),
+            )
+            .child(
+                crate::modal::ghost_button("board-ask", "Ask orchestrator")
+                    .when(!can_ask, |d| d.opacity(0.4))
+                    .on_click(cx.listener(|this, _, _, cx| this.ask(cx))),
+            );
         let composer = div()
             .flex()
             .flex_col()
@@ -388,6 +429,7 @@ impl gpui::Render for Board {
             .when_some(self.error.clone(), |d, error| {
                 d.child(div().text_size(px(12.)).text_color(gpui::red()).child(error))
             })
+            .child(orchestrator)
             .child(composer)
             .child(
                 div()

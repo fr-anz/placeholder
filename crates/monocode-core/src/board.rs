@@ -191,6 +191,20 @@ pub fn coordinator_brief(key: &str, card: &Card) -> String {
     brief
 }
 
+/// Opens each board orchestrator conversation: a fresh session with a snapshot
+/// of the board, so a long history never fills the model's context.
+pub fn orchestrator_brief(project_label: &str, key: &str, snapshot: &str, message: &str) -> String {
+    format!(
+        "You are the orchestrator for the \"{project_label}\" board. The user talks to you here to plan and steer work; you do not write code yourself.\n\n- Turn requests into well-scoped cards with `board.add`: a short title and a self-contained spec in `details` (goal, relevant files if known, acceptance criteria). Split large requests into several cards.\n- Cards land in the backlog. Pass `start: true` only when the user asks to begin; otherwise let them review the specs and start cards themselves.\n- `board.start` starts a backlog card by number ({key}-3 or 3). Its coordinator plans scout, implementer and reviewer assignments.\n- `board.list` lists the board with each card's coordinator session; read one with `sessions.read`.\n- Lanes move on their own: Backlog until started, In progress while agents run, Needs review when finished or waiting on the user.\n\n## Board now\n\n{}\n\n## User\n\n{message}",
+        if snapshot.trim().is_empty() { "No cards yet." } else { snapshot.trim_end() }
+    )
+}
+
+/// Resolves `3` or `PRJ-3` to a card number.
+pub fn parse_card_number(value: &str) -> Option<u32> {
+    value.rsplit('-').next()?.trim().parse().ok()
+}
+
 /// A plain-text board for an orchestrator conversation.
 pub fn snapshot(cards: &[Card], key: &str, state: impl Fn(&Card) -> Option<LeadState>) -> String {
     let mut out = String::new();
@@ -302,6 +316,16 @@ mod tests {
         assert_eq!(load(&store).len(), 2);
         let brief = coordinator_brief("PRJ-1", &updated);
         assert!(brief.contains("## Card PRJ-1: Fix login\n\nUsers get logged out"));
+    }
+
+    #[test]
+    fn card_numbers_parse_from_keys_and_briefs_carry_the_board() {
+        assert_eq!(parse_card_number("CAP-12"), Some(12));
+        assert_eq!(parse_card_number("7"), Some(7));
+        assert_eq!(parse_card_number("CAP-"), None);
+        let brief = orchestrator_brief("capy", "CAP", "", "Plan auth");
+        assert!(brief.contains("No cards yet."));
+        assert!(brief.ends_with("## User\n\nPlan auth"));
     }
 
     #[test]

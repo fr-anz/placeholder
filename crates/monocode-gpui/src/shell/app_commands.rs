@@ -176,6 +176,7 @@ impl Shell {
                     | "notes.list"
                     | "notes.read"
                     | "worktrees.list"
+                    | "board.list"
             )
         {
             return Err("This thread's access policy allows read-only app actions.".into());
@@ -602,6 +603,9 @@ impl Shell {
                 );
                 return;
             }
+            "board.list" | "board.add" | "board.start" => {
+                self.board_action(&action, &input, &project, cx)
+            }
             _ => Err("Unknown Operator action".into()),
         };
         self.finish_app_call(call, result, cx);
@@ -617,6 +621,7 @@ fn mutating(action: &str) -> bool {
             | "notes.list"
             | "notes.read"
             | "worktrees.list"
+            | "board.list"
     )
 }
 fn worktree_json(tree: &monocode_core::git::Worktree) -> Value {

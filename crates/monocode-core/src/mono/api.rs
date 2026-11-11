@@ -12,6 +12,7 @@ pub fn validate(action: &str, input: &Value) -> Result<(), String> {
         "worktrees.create"=>"branch base existing project",
         "folders.move"=>"sessionId folderId newFolderName project",
         "notes.list"=>"limit offset","notes.read"=>"id","notes.write"=>"id title body tags",
+        "board.list"=>"project","board.add"=>"title details start project","board.start"=>"card project",
         "artifacts.list"=>"kind limit offset","artifacts.read"=>"id","artifacts.write"=>"id kind title body summary",
         "soul.update"=>"text expectedHash","memory.read"=>"topic","memory.search"=>"query since",
         "memory.add"=>"fact topic until","memory.replace"=>"find fact topic until","memory.remove"=>"find topic",
@@ -23,7 +24,7 @@ pub fn validate(action: &str, input: &Value) -> Result<(), String> {
         if !fields.split_whitespace().any(|f| f == key) {
             return Err(format!("{action} does not take {key}"));
         }
-        if ["draft", "reveal", "notifyOnComplete", "existing", "enabled"].contains(&key.as_str())
+        if ["draft", "reveal", "notifyOnComplete", "existing", "enabled", "start"].contains(&key.as_str())
             && !value.is_boolean()
         {
             return Err(format!("{key} must be true or false"));

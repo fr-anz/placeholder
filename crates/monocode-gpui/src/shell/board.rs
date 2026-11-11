@@ -3,7 +3,8 @@
 use super::app_views::AppView;
 use super::*;
 use crate::board;
-use monocode_core::board::{Card, LeadState};
+use monocode_core::board::{Card, Lane, LeadState};
+use serde_json::{Value, json};
 
 impl Shell {
     pub(super) fn open_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -17,6 +18,9 @@ impl Shell {
                     board::Event::Close => this.close_app_view(window, cx),
                     board::Event::OpenSession(id) => this.open(*id, window, cx),
                     board::Event::Start(card) => this.start_board_card(card.clone(), cx),
+                    board::Event::Ask(message) => {
+                        this.ask_board_orchestrator(message.clone(), window, cx)
+                    }
                 },
             ));
             self.board = Some(view);
@@ -81,7 +85,7 @@ impl Shell {
 
     /// Opens the card's coordinator: an orchestrator session in the card's
     /// project whose first message is the card brief.
-    fn start_board_card(&mut self, card: Card, cx: &mut Context<Self>) {
+    pub(super) fn start_board_card(&mut self, card: Card, cx: &mut Context<Self>) {
         let cwd = card.project.clone();
         let key = format!(
             "{}-{}",
@@ -127,10 +131,177 @@ impl Shell {
                     let id = summary.id;
                     this.add(summary, cx);
                     this.sessions[&id].update(cx, |view, cx| view.quick_submit(prompt, settings, cx));
+                    // Saved here, not by the view: agents start cards with the board closed.
+                    let saved = locked(&this.store).and_then(|store| {
+                        monocode_core::board::update(&store, &card.id, |c| c.lead = Some(id))
+                    });
+                    if let Err(error) = saved {
+                        this.error = Some(error);
+                    }
                     if let Some(board) = &this.board {
-                        board.update(cx, |board, cx| board.started(&card.id, id, cx));
+                        board.update(cx, |board, cx| board.refresh(cx));
                     }
                     this.sync_board(cx);
+                    this.persist(cx);
+                }
+                Err(error) => {
+                    this.error = Some(error);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+}
+
+impl Shell {
+    fn board_key(&self, project: &str) -> String {
+        monocode_core::board::prefix(&self.project_label(project))
+    }
+
+    fn board_snapshot(&self, project: &str, cx: &App) -> String {
+        let cards: Vec<_> = locked(&self.store)
+            .map(|store| monocode_core::board::load(&store))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| c.project == project)
+            .collect();
+        monocode_core::board::snapshot(&cards, &self.board_key(project), |card| {
+            card.lead.map(|lead| self.lead_state(lead, cx))
+        })
+    }
+
+    /// `board.list`, `board.add` and `board.start` for app-access sessions in `project`.
+    pub(super) fn board_action(
+        &mut self,
+        action: &str,
+        input: &Value,
+        project: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let key = self.board_key(project);
+        let card_json = |this: &Self, card: &Card, cx: &App| {
+            let state = card.lead.map(|lead| this.lead_state(lead, cx));
+            let lane = match monocode_core::board::lane(card, state) {
+                Lane::Backlog => "backlog",
+                Lane::InProgress => "in_progress",
+                Lane::NeedsReview => "needs_review",
+            };
+            json!({
+                "card": format!("{key}-{}", card.number),
+                "number": card.number,
+                "title": card.title,
+                "details": card.details.chars().take(500).collect::<String>(),
+                "lane": lane,
+                "status": monocode_core::board::status_label(card, state),
+                "sessionId": card.lead,
+            })
+        };
+        let result = match action {
+            "board.list" => {
+                let cards: Vec<_> = locked(&self.store)
+                    .map(|store| monocode_core::board::load(&store))?
+                    .into_iter()
+                    .filter(|c| c.project == project && !c.archived)
+                    .collect();
+                Ok(json!({"cards": cards.iter().map(|c| card_json(self, c, cx)).collect::<Vec<_>>()}))
+            }
+            "board.add" => {
+                let title = input["title"].as_str().ok_or("board.add needs a title")?;
+                let details = input["details"].as_str().unwrap_or_default();
+                let card = locked(&self.store)
+                    .and_then(|store| monocode_core::board::add(&store, project, title, details))?;
+                let value = card_json(self, &card, cx);
+                if input["start"] == true {
+                    self.start_board_card(card, cx);
+                }
+                Ok(json!({"added": value, "started": input["start"] == true}))
+            }
+            "board.start" => {
+                let raw = match &input["card"] {
+                    Value::Number(n) => n.to_string(),
+                    Value::String(s) => s.clone(),
+                    _ => return Err("board.start needs card, such as 3 or PRJ-3".into()),
+                };
+                let number = monocode_core::board::parse_card_number(&raw)
+                    .ok_or("board.start needs card, such as 3 or PRJ-3")?;
+                let card = locked(&self.store)
+                    .map(|store| monocode_core::board::load(&store))?
+                    .into_iter()
+                    .find(|c| c.project == project && c.number == number && !c.archived)
+                    .ok_or_else(|| format!("No card {key}-{number} on this board"))?;
+                if card.lead.is_some() {
+                    return Err(format!("{key}-{number} has already started"));
+                }
+                let value = card_json(self, &card, cx);
+                self.start_board_card(card, cx);
+                Ok(json!({"started": value}))
+            }
+            _ => Err("Unknown board action".into()),
+        };
+        if let Some(board) = &self.board {
+            board.update(cx, |board, cx| board.refresh(cx));
+        }
+        result
+    }
+
+    /// Each question from the board opens a fresh orchestrator session with app
+    /// access and a snapshot of the board.
+    fn ask_board_orchestrator(
+        &mut self,
+        message: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let cwd = self.workspace.project.clone();
+        if cwd.is_empty() {
+            return;
+        }
+        let label = self.project_label(&cwd);
+        let key = self.board_key(&cwd);
+        let prompt = monocode_core::board::orchestrator_brief(
+            &label,
+            &key,
+            &self.board_snapshot(&cwd, cx),
+            &message,
+        );
+        let choice = self.new_chat_choice(&cwd);
+        let kind = choice.kind;
+        let settings = monocode_core::agent::Settings {
+            model: choice.model,
+            effort: crate::conversation::preferred_effort(kind.id(), cx),
+            access: self
+                .workspace
+                .preferences
+                .default_access
+                .as_deref()
+                .map(monocode_core::agent::AccessMode::from_id)
+                .unwrap_or_default(),
+            account: crate::accounts::get(cx)
+                .map(|accounts| accounts.read(cx).selected(kind, &cwd))
+                .unwrap_or_default(),
+            operator: true,
+            operator_enabled: true,
+            ..Default::default()
+        };
+        let title = format!("{key} board · {}", message.lines().next().unwrap_or_default());
+        let store = self.store.clone();
+        let work = cx.background_executor().spawn(async move {
+            let store = locked(&store)?;
+            let mut summary = store.create(kind.id(), &cwd)?;
+            summary.title = title.chars().take(120).collect();
+            store.title(summary.id, &summary.title)?;
+            store.save_agent_settings(summary.id, &settings)?;
+            Ok::<_, String>((summary, settings, prompt))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = work.await;
+            let _ = this.update_in(cx, |this, window, cx| match result {
+                Ok((summary, settings, prompt)) => {
+                    let id = summary.id;
+                    this.add(summary, cx);
+                    this.sessions[&id].update(cx, |view, cx| view.quick_submit(prompt, settings, cx));
+                    this.activate_session(id, window, cx);
                     this.persist(cx);
                 }
                 Err(error) => {
@@ -188,6 +359,37 @@ mod tests {
                 };
                 assert_eq!(lane_of("Todo"), Lane::Backlog);
                 assert_eq!(lane_of("Started"), Lane::NeedsReview, "an idle coordinator is done");
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn board_actions_add_list_and_guard_starts(cx: &mut TestAppContext) {
+        let (window, _, _) = crate::shell::tests::window(cx);
+        window
+            .update(cx, |shell, _, cx| {
+                let project = "/work/monocode";
+                let added = shell
+                    .board_action(
+                        "board.add",
+                        &json!({"title": "Split auth", "details": "Goal: ..."}),
+                        project,
+                        cx,
+                    )
+                    .unwrap();
+                assert_eq!(added["added"]["card"], "MON-1");
+                assert_eq!(added["started"], false);
+                assert!(shell.board_action("board.add", &json!({}), project, cx).is_err());
+                let listed = shell.board_action("board.list", &json!({}), project, cx).unwrap();
+                assert_eq!(listed["cards"][0]["lane"], "backlog");
+                assert_eq!(listed["cards"][0]["status"], "Not started");
+                let other = shell.board_action("board.list", &json!({}), "/elsewhere", cx).unwrap();
+                assert_eq!(other["cards"].as_array().unwrap().len(), 0);
+                let missing = shell
+                    .board_action("board.start", &json!({"card": "MON-9"}), project, cx)
+                    .unwrap_err();
+                assert!(missing.contains("No card MON-9"));
+                assert!(shell.board_snapshot(project, cx).contains("- MON-1 Split auth (Not started)"));
             })
             .unwrap();
     }
