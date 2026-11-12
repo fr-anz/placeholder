@@ -187,6 +187,7 @@ impl Board {
         let title = cx.new(|cx| {
             let mut input = Input::field("Task title", "Task title", content(0.35), cx);
             input.set_max_chars(board::MAX_TITLE);
+            input.set_yields_when_empty(true);
             input
         });
         let details = cx.new(|cx| {
@@ -201,12 +202,14 @@ impl Board {
             input
         });
         let ask = cx.new(|cx| {
-            Input::field(
+            let mut input = Input::field(
                 "Message the board orchestrator",
                 "Ask the orchestrator to plan or start tasks…",
                 content(0.35),
                 cx,
-            )
+            );
+            input.set_yields_when_empty(true);
+            input
         });
         let subscriptions = vec![
             cx.subscribe(&title, |this, _, _: &input::Submitted, cx| this.add(cx)),

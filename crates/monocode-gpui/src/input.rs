@@ -206,6 +206,9 @@ pub struct Input {
     focus: FocusHandle,
     height: f32,
     single_line: bool,
+    /// An empty single-line field passes word navigation on, as composers do,
+    /// so app shortcuts on the same keys (switching projects) still work.
+    yields_when_empty: bool,
     read_only: bool,
     secret: bool,
     max_chars: Option<usize>,
@@ -261,6 +264,7 @@ impl Input {
             focus: cx.focus_handle(),
             height: MIN_HEIGHT,
             single_line: false,
+            yields_when_empty: false,
             read_only: false,
             secret: false,
             max_chars: None,
@@ -527,9 +531,12 @@ impl Input {
     /// An empty composer hands its document and line keys (Cmd+arrows) on to
     /// the workspace's session and project navigation, as React's
     /// `emptyComposer` condition does. Returns whether it did.
+    pub(crate) fn set_yields_when_empty(&mut self, value: bool) {
+        self.yields_when_empty = value;
+    }
     fn yields_navigation(&self, cx: &mut Context<Self>) -> bool {
         let yields = self.code.is_none()
-            && !self.single_line
+            && (!self.single_line || self.yields_when_empty)
             && self.content.is_empty()
             && !self.is_composing();
         if yields {

@@ -596,6 +596,30 @@ mod tests {
     }
 
     #[gpui::test]
+    fn project_shortcuts_pass_through_the_empty_board_composer(cx: &mut TestAppContext) {
+        let (window, _, _) = crate::shell::tests::window(cx);
+        cx.update(|cx| {
+            crate::input::bind(cx);
+            crate::shell::bind_keys(cx);
+        });
+        window
+            .update(cx, |shell, w, cx| {
+                shell.open_board(w, cx);
+                // The board focuses its message field, as on open.
+                let focus = shell.board.as_ref().unwrap().read(cx).focus_handle(cx);
+                w.focus(&focus, cx);
+            })
+            .unwrap();
+        let before = window.update(cx, |shell, _, _| shell.workspace.project.clone()).unwrap();
+        // On Linux and Windows this is also the field's select-word key.
+        let modifier = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+        cx.simulate_keystrokes(window.into(), &format!("{modifier}-shift-right"));
+        cx.run_until_parked();
+        let after = window.update(cx, |shell, _, _| shell.workspace.project.clone()).unwrap();
+        assert_ne!(before, after, "the shortcut switched projects from the board");
+    }
+
+    #[gpui::test]
     fn board_actions_add_list_and_guard_starts(cx: &mut TestAppContext) {
         let (window, _, _) = crate::shell::tests::window(cx);
         window
