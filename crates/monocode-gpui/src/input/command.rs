@@ -13,6 +13,8 @@ pub(crate) enum Command {
     Plan,
     Operator,
     Orchestrator,
+    /// The board composer's "one implementer per card" mode.
+    Solo,
 }
 impl Command {
     pub(crate) fn from_name(name: &str) -> Option<Self> {
@@ -21,6 +23,7 @@ impl Command {
             "plan" => Some(Self::Plan),
             "operator" => Some(Self::Operator),
             "orchestrator" => Some(Self::Orchestrator),
+            "solo" => Some(Self::Solo),
             _ => None,
         }
     }
@@ -30,6 +33,7 @@ impl Command {
             Self::Plan => "plan",
             Self::Operator => "operator",
             Self::Orchestrator => "orchestrator",
+            Self::Solo => "solo",
         }
     }
     pub(crate) fn icon(self) -> &'static str {
@@ -38,6 +42,7 @@ impl Command {
             Self::Plan => "ai-idea",
             Self::Operator => "cursor-magic",
             Self::Orchestrator => "share",
+            Self::Solo => "user",
         }
     }
     pub(crate) fn color(self) -> Hsla {
@@ -53,6 +58,8 @@ impl Command {
             (Self::Operator, false) => 0x0069a8,
             (Self::Orchestrator, true) => 0xf6cfff,
             (Self::Orchestrator, false) => 0xa800b7,
+            (Self::Solo, true) => 0xa4f4cf,
+            (Self::Solo, false) => 0x007a55,
         })
         .into();
         if dark {

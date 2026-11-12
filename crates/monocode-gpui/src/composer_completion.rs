@@ -80,6 +80,9 @@ pub(crate) struct Completion {
     dismissed: Option<Token>,
     skills: Vec<DiscoveredSkill>,
     provider: monocode_core::provider::Kind,
+    /// The board orchestrator's composer: modes and Git commands that do not
+    /// apply there are left out.
+    pub(crate) board: bool,
     native_commands: Vec<monocode_core::provider::NativeCommand>,
     native_loading: bool,
     native_revision: usize,
@@ -147,6 +150,7 @@ impl Completion {
             dismissed: None,
             skills: Vec::new(),
             provider: monocode_core::provider::Kind::Codex,
+            board: false,
             native_commands: Vec::new(),
             native_loading: false,
             native_revision: 0,
@@ -668,9 +672,18 @@ impl Completion {
                     "Save this message without starting the agent",
                 ),
                 (
+                    "solo",
+                    "Solo",
+                    "New cards are worked by one implementer",
+                ),
+                (
                     "orchestrator",
                     "Orchestrator",
-                    "Plan and coordinate agent work",
+                    if self.board {
+                        "New cards get a coordinator and workers"
+                    } else {
+                        "Plan and coordinate agent work"
+                    },
                 ),
                 (
                     "operator",
@@ -710,6 +723,14 @@ impl Completion {
             .enumerate()
             {
                 if matches!(id, "stage" | "commit") && self.has_user_command(id) {
+                    continue;
+                }
+                // The board composer swaps the chat's modes for card modes.
+                if if self.board {
+                    matches!(id, "operator" | "plan" | "stage" | "commit")
+                } else {
+                    id == "solo"
+                } {
                     continue;
                 }
                 if id == "btw"

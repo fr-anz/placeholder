@@ -199,9 +199,7 @@ impl Shell {
         }
         if let Some(id) = self.board_orchestrator(project) {
             let view = self.ensure_session(id, cx)?;
-            view.update(cx, |view, _| {
-                view.settings.board_orchestrator = Some(project.to_owned())
-            });
+            view.update(cx, |view, cx| view.set_board_orchestrator(project, cx));
             return Some(view);
         }
         let (kind, mut settings) = self.orchestrator_start(project, cx);
@@ -228,7 +226,10 @@ impl Shell {
         let id = summary.id;
         self.add(summary, cx);
         let view = self.sessions.get(&id)?.clone();
-        view.update(cx, |view, cx| view.install_transfer(settings, None, cx));
+        view.update(cx, |view, cx| {
+            view.install_transfer(settings, None, cx);
+            view.set_board_orchestrator(project, cx);
+        });
         self.persist(cx);
         Some(view)
     }
@@ -582,6 +583,40 @@ mod tests {
         cx.run_until_parked();
         let after = window.update(cx, |shell, _, _| shell.workspace.project.clone()).unwrap();
         assert_ne!(before, after, "the shortcut switched projects from the board");
+    }
+
+    #[gpui::test]
+    fn the_board_composer_sets_card_modes_with_solo_and_orchestrator_tags(cx: &mut TestAppContext) {
+        use monocode_core::board::{CardsPreference, load_cards_preference};
+        let (window, _, _) = crate::shell::tests::window(cx);
+        window
+            .update(cx, |shell, w, cx| {
+                shell.open_board(w, cx);
+                let project = shell.workspace.project.clone();
+                let chat = shell.board_dock.clone().unwrap().1.read(cx).conversation().clone();
+                let saved = |shell: &Shell| {
+                    load_cards_preference(&locked(&shell.store).unwrap(), &project)
+                };
+                assert_eq!(saved(shell), CardsPreference::Auto);
+                chat.update(cx, |c, cx| c.toggle_mode("solo", cx));
+                assert_eq!(saved(shell), CardsPreference::Solo);
+                assert!(chat.read(cx).input.read(cx).content.starts_with("/solo"));
+                chat.update(cx, |c, cx| c.toggle_mode("orchestrator", cx));
+                assert_eq!(saved(shell), CardsPreference::Orchestrate);
+                assert!(
+                    !chat.read(cx).settings.orchestrator,
+                    "on the board, /orchestrator is a card mode, not the chat's planning mode"
+                );
+                assert!(chat.read(cx).input.read(cx).content.starts_with("/orchestrator"));
+                chat.update(cx, |c, cx| c.toggle_mode("orchestrator", cx));
+                assert_eq!(saved(shell), CardsPreference::Auto, "picking it again returns to Auto");
+                chat.update(cx, |c, cx| c.toggle_mode("solo", cx));
+                chat.update(cx, |c, cx| c.clear_mode("solo", cx));
+                assert_eq!(saved(shell), CardsPreference::Auto, "removing the tag returns to Auto");
+                // Chat-only modes stay off the board's slash menu.
+                assert!(chat.read(cx).completion_is_board(cx));
+            })
+            .unwrap();
     }
 
     #[gpui::test]

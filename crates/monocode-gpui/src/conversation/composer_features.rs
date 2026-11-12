@@ -27,6 +27,12 @@ impl Conversation {
         self.app_environment = environment;
     }
     pub(crate) fn enable_mode(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(mode) = self.board_mode_for(id) {
+            if self.board_cards(cx) != mode {
+                self.set_board_cards(mode, cx);
+            }
+            return;
+        }
         let enabled = match id {
             "draft" => self.follow_ups.draft_selected,
             "plan" => self.settings.plan,
@@ -39,6 +45,11 @@ impl Conversation {
         }
     }
     pub(crate) fn clear_mode(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.board_mode_for(id).is_some() {
+            // Removing the tag only edits the text; the field already holds it.
+            self.save_board_cards(monocode_core::board::CardsPreference::Auto, cx);
+            return;
+        }
         let enabled = match id {
             "draft" => &mut self.follow_ups.draft_selected,
             "plan" => &mut self.settings.plan,
@@ -66,6 +77,15 @@ impl Conversation {
         cx.notify();
     }
     pub(crate) fn toggle_mode(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(mode) = self.board_mode_for(id) {
+            let next = if self.board_cards(cx) == mode {
+                monocode_core::board::CardsPreference::Auto
+            } else {
+                mode
+            };
+            self.set_board_cards(next, cx);
+            return;
+        }
         if self.is_remote() && matches!(id, "operator" | "orchestrator") {
             self.status = "This mode is not available on remote projects.".into();
             cx.notify();
@@ -128,6 +148,19 @@ impl Conversation {
         mut text: String,
         cx: &mut Context<Self>,
     ) -> String {
+        if self.settings.board_orchestrator.is_some() {
+            // A board's card mode stays chosen; only its tag leaves the text.
+            for id in ["solo", "orchestrator"] {
+                if let Some(rest) = monocode_core::composer::consume_command(&text, id) {
+                    let rest = rest.to_owned();
+                    if let Some(mode) = self.board_mode_for(id) {
+                        self.save_board_cards(mode, cx);
+                    }
+                    return rest;
+                }
+            }
+            return text;
+        }
         for mode in ["plan", "operator", "orchestrator"] {
             if let Some(rest) = monocode_core::composer::consume_command(&text, mode) {
                 let rest = rest.to_owned();
@@ -158,6 +191,60 @@ impl Conversation {
             }
         }
         text
+    }
+    /// On the board orchestrator's composer, `/solo` and `/orchestrator`
+    /// choose how the cards it creates are worked; neither means Auto.
+    fn board_mode_for(&self, id: &str) -> Option<monocode_core::board::CardsPreference> {
+        use monocode_core::board::CardsPreference;
+        self.settings.board_orchestrator.as_ref()?;
+        match id {
+            "solo" => Some(CardsPreference::Solo),
+            "orchestrator" => Some(CardsPreference::Orchestrate),
+            _ => None,
+        }
+    }
+    /// The board's card mode, read from the store once.
+    pub(crate) fn board_cards(&mut self, _cx: &mut Context<Self>) -> monocode_core::board::CardsPreference {
+        let Some(project) = self.settings.board_orchestrator.clone() else {
+            return Default::default();
+        };
+        *self.board_cards.get_or_insert_with(|| {
+            locked(&self.store)
+                .map(|store| monocode_core::board::load_cards_preference(&store, &project))
+                .unwrap_or_default()
+        })
+    }
+    /// Saves the board's card mode. The field only changes once it is saved,
+    /// so the tag never shows a mode the orchestrator will not be told.
+    fn save_board_cards(&mut self, mode: monocode_core::board::CardsPreference, cx: &mut Context<Self>) {
+        let Some(project) = self.settings.board_orchestrator.clone() else {
+            return;
+        };
+        if locked(&self.store)
+            .and_then(|store| monocode_core::board::save_cards_preference(&store, &project, mode))
+            .is_ok()
+        {
+            self.board_cards = Some(mode);
+            cx.notify();
+        }
+    }
+    /// Saves the mode and puts its tag at the start of the text, as picking a
+    /// chat mode does.
+    fn set_board_cards(&mut self, mode: monocode_core::board::CardsPreference, cx: &mut Context<Self>) {
+        self.follow_ups.draft_selected = false;
+        self.save_board_cards(mode, cx);
+        let selected = board_command(self.board_cards(cx)).map(input::Command::name);
+        self.input.update(cx, |input, cx| {
+            let leading = input::Command::leading(&input.content);
+            if leading.map(input::Command::name) != selected {
+                let body = leading.map_or(input.content.as_ref(), |mode| {
+                    input.content[mode.name().len() + 1..].trim_start()
+                });
+                let next =
+                    selected.map_or_else(|| body.to_owned(), |name| format!("/{name} {body}"));
+                input.set_text(next, cx);
+            }
+        });
     }
     pub(super) fn choose_attachments(&mut self, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
@@ -648,5 +735,14 @@ impl Conversation {
                 );
         }
         Some(card.into_any_element())
+    }
+}
+
+/// The input tag for a board card mode; Auto has none.
+pub(super) fn board_command(mode: monocode_core::board::CardsPreference) -> Option<input::Command> {
+    match mode {
+        monocode_core::board::CardsPreference::Auto => None,
+        monocode_core::board::CardsPreference::Solo => Some(input::Command::Solo),
+        monocode_core::board::CardsPreference::Orchestrate => Some(input::Command::Orchestrator),
     }
 }

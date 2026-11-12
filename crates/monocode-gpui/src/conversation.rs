@@ -62,7 +62,7 @@ use std::{
 };
 // Keep empty and docked composers aligned with the transcript column. Below
 // this width the empty session drops its title.
-const COMPOSER_COLUMN: f32 = COLUMN;
+pub(crate) const COMPOSER_COLUMN: f32 = COLUMN;
 const COMPOSER_RADIUS: f32 = 12.;
 // RUNTIME_MODE_LABEL and RUNTIME_MODE_HINT from the React session model,
 // with AccessPicker's icons; Full access is amber.
@@ -2099,7 +2099,7 @@ impl Conversation {
                 "thinking" => {
                     self.settings.thinking = Some(!self.settings.thinking.unwrap_or(false))
                 }
-                "plan" | "operator" | "orchestrator" | "draft" => {
+                "plan" | "operator" | "orchestrator" | "solo" | "draft" => {
                     self.toggle_mode(id, cx);
                     return;
                 }
@@ -2548,6 +2548,42 @@ impl Conversation {
                 )
             }
             // Composer.tsx's plus menu with native mode and attachment actions.
+            ComposerMenu::Add if self.settings.board_orchestrator.is_some() => {
+                // The board orchestrator has app access and never edits code;
+                // its modes choose how the cards it creates are worked.
+                use monocode_core::board::CardsPreference;
+                let cards = self.board_cards.unwrap_or_default();
+                let mut items = vec![MenuItem::Header("Add to message".into())];
+                items.extend(
+                    [
+                        MenuAction::new("upload", "Upload file")
+                            .icon("file-add")
+                            .description("Attach files or images"),
+                        MenuAction::new("solo", "Solo")
+                            .icon("user")
+                            .icon_color(input::Command::Solo.color())
+                            .description("New cards are worked by one implementer")
+                            .checked(cards == CardsPreference::Solo),
+                        MenuAction::new("orchestrator", "Orchestrator")
+                            .icon("share")
+                            .icon_color(tint(FUCHSIA_300, 0.65))
+                            .description("New cards get a coordinator and workers")
+                            .checked(cards == CardsPreference::Orchestrate),
+                        MenuAction::new("draft", "Draft")
+                            .icon("circle-dashed-hi")
+                            .description("Save this message without starting the agent")
+                            .disabled(self.busy || self.follow_ups.state.draft.is_some())
+                            .checked(self.draft_active(cx)),
+                    ]
+                    .into_iter()
+                    .map(Into::into),
+                );
+                items.push(MenuItem::Separator);
+                items.push(MenuItem::Header(
+                    "Neither: the orchestrator picks per card".into(),
+                ));
+                ("Add to message", items, 250., MenuStyle::Composer)
+            }
             ComposerMenu::Add => {
                 let mut items = vec![MenuItem::Header("Add to message".into())];
                 items.extend(
@@ -2793,48 +2829,16 @@ impl Conversation {
         runner.update(cx, |r, cx| r.configure(self.busy, name, color, cx));
         Some(runner)
     }
-    /// The board composer's "Cards" chip: how the board orchestrator sets the
-    /// mode of cards it creates. A click moves to the next choice.
-    fn board_cards_pill(&mut self, cx: &mut Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
-        use monocode_core::board::{CardsPreference, load_cards_preference, save_cards_preference};
-        let project = self.settings.board_orchestrator.clone()?;
-        let current = *self.board_cards.get_or_insert_with(|| {
-            crate::runtime::locked(&self.store)
-                .map(|store| load_cards_preference(&store, &project))
-                .unwrap_or_default()
-        });
-        let next = CardsPreference::ALL
-            [(CardsPreference::ALL.iter().position(|p| *p == current).unwrap_or(0) + 1)
-                % CardsPreference::ALL.len()];
-        Some(
-            tool_pill("composer-board-cards", "Card mode")
-                .aria_label(format!(
-                    "Cards: {}. {}. Click for {}",
-                    current.label(),
-                    current.description(),
-                    next.label()
-                ))
-                .child(icon(
-                    match current {
-                        CardsPreference::Auto => "sparkles",
-                        CardsPreference::Solo => "user",
-                        CardsPreference::Orchestrate => "git-merge",
-                    },
-                    14.,
-                ))
-                .child(pill_label(format!("Cards: {}", current.label())))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    // The chip only moves once the choice is saved, so it
-                    // never shows a mode the orchestrator will not be told.
-                    if crate::runtime::locked(&this.store)
-                        .and_then(|store| save_cards_preference(&store, &project, next))
-                        .is_ok()
-                    {
-                        this.board_cards = Some(next);
-                        cx.notify();
-                    }
-                })),
-        )
+    /// Makes this chat a board's orchestrator: its composer offers card modes
+    /// instead of the chat's own modes.
+    pub(crate) fn set_board_orchestrator(&mut self, project: &str, cx: &mut Context<Self>) {
+        self.settings.board_orchestrator = Some(project.to_owned());
+        self.board_cards = None;
+        self.completion.update(cx, |c, _| c.board = true);
+    }
+    #[cfg(test)]
+    pub(crate) fn completion_is_board(&self, cx: &gpui::App) -> bool {
+        self.completion.read(cx).board
     }
     /// The composer alone, for a chat shown elsewhere, such as the board's
     /// orchestrator under the lanes. Attachments can be dropped on it.
@@ -2850,6 +2854,8 @@ impl Conversation {
         let radius = COMPOSER_RADIUS;
         let command = if self.follow_ups.draft_selected {
             Some(input::Command::Draft)
+        } else if self.settings.board_orchestrator.is_some() {
+            composer_features::board_command(self.board_cards(cx))
         } else if self.settings.orchestrator {
             Some(input::Command::Orchestrator)
         } else if self.settings.plan {
@@ -3080,7 +3086,6 @@ impl Conversation {
                                             .child(icon("chevron-down", 12.)),
                                     )
                                     .children(controls)
-                                    .children(self.board_cards_pill(cx))
                                     .child(
                                         tool_pill("composer-access", "Access")
                                             .aria_label(format!(
@@ -3126,7 +3131,10 @@ impl Conversation {
                 runner.cached(crate::composer_runner::Runner::placement())
             }))
             .children(self.remote_notice(cx))
-            .child(self.workspace_bar(cx))
+            // The board orchestrator plans cards; it has no checkout to pick.
+            .when(self.settings.board_orchestrator.is_none(), |d| {
+                d.child(self.workspace_bar(cx))
+            })
             .into_any_element()
     }
     fn workspace_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {

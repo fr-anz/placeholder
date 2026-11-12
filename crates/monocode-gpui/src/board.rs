@@ -63,6 +63,8 @@ pub(crate) struct Board {
     composing: bool,
     /// The mode of the card being composed.
     compose_mode: CardMode,
+    /// The orchestrator's reply above the composer is folded to one line.
+    reply_folded: bool,
     title: Entity<Input>,
     details: Entity<Input>,
     error: Option<String>,
@@ -211,6 +213,7 @@ impl Board {
             tab: Tab::Active,
             composing: false,
             compose_mode: CardMode::default(),
+            reply_folded: false,
             title,
             details,
             error: None,
@@ -782,46 +785,82 @@ impl Board {
             .into_any_element()
     }
 
-    /// The orchestrator's latest reply, above the field; the whole section
-    /// opens its chat.
+    /// The orchestrator's latest reply, above the composer. Clicking it opens
+    /// the chat; its chevron folds it to one line so it stops covering the
+    /// lanes.
     fn reply(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let status = self.orchestrator.clone()?;
         // A short plain-text excerpt: replies are Markdown.
         let collapsed = plain_excerpt(&status.reply);
-        let mut reply: String = collapsed.chars().take(320).collect();
-        if collapsed.chars().count() > 320 {
+        let mut reply: String = collapsed.chars().take(240).collect();
+        if collapsed.chars().count() > 240 {
             reply.push('…');
         }
         if reply.is_empty() && !status.busy {
             return None;
         }
         let session = status.session;
+        let open = !self.reply_folded;
+        let toggle = div()
+            .id("board-orchestrator-reply-toggle")
+            .role(Role::Button)
+            .aria_label(if open { "Hide the orchestrator's reply" } else { "Show the orchestrator's reply" })
+            .aria_expanded(open)
+            .cursor_pointer()
+            .flex_shrink_0()
+            .size(px(22.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_md()
+            .hover(|s| s.bg(content(0.08)))
+            .child(icon(if open { "chevron-down" } else { "chevron-up" }, 13.).text_color(content(0.45)))
+            .on_click(cx.listener(|this, _, _, cx| {
+                cx.stop_propagation();
+                this.reply_folded = !this.reply_folded;
+                cx.notify();
+            }));
+        let header = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .text_size(px(12.))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child("Orchestrator"))
+            .when(status.busy, |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_color(amber(1.))
+                        .child(icon("loader", 12.).text_color(amber(1.)))
+                        .child("Working…"),
+                )
+            });
         Some(
             div()
                 .id("board-orchestrator-reply")
                 .role(Role::Button)
                 .aria_label("Open the orchestrator chat")
                 .cursor_pointer()
-                .px_4()
-                .pt_3()
-                .pb(px(10.))
+                .px_3()
+                .py(px(7.))
                 .flex()
-                .gap_3()
-                .border_b_1()
-                .border_color(content(0.07))
+                .items_start()
+                .gap_2p5()
                 .hover(|s| s.bg(content(0.035)))
                 .on_click(cx.listener(move |_, _, _, cx| cx.emit(Event::OpenSession(session))))
                 .child(
                     div()
                         .mt(px(1.))
-                        .size(px(24.))
+                        .size(px(20.))
                         .flex_shrink_0()
                         .flex()
                         .items_center()
                         .justify_center()
                         .rounded_full()
                         .bg(accent_color().opacity(0.16))
-                        .child(icon("git-merge", 13.).text_color(accent_color())),
+                        .child(icon("git-merge", 11.).text_color(accent_color())),
                 )
                 .child(
                     div()
@@ -829,44 +868,21 @@ impl Board {
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .text_size(px(12.))
-                                .child(div().font_weight(FontWeight::SEMIBOLD).child("Orchestrator"))
-                                .when(status.busy, |d| {
-                                    d.child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap_1()
-                                            .text_color(amber(1.))
-                                            .child(icon("loader", 12.).text_color(amber(1.)))
-                                            .child("Working…"),
-                                    )
-                                }),
-                        )
-                        .when(!reply.is_empty(), |d| {
+                        .gap(px(2.))
+                        .child(div().h(px(22.)).flex().items_center().child(header))
+                        .when(open && !reply.is_empty(), |d| {
                             d.child(
                                 div()
-                                    .text_size(px(13.))
-                                    .line_height(px(19.))
-                                    .text_color(content(0.78))
-                                    .max_h(px(57.))
+                                    .text_size(px(12.5))
+                                    .line_height(px(18.))
+                                    .text_color(content(0.72))
+                                    .max_h(px(36.))
                                     .overflow_hidden()
                                     .child(reply),
                             )
                         }),
                 )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .pt(px(4.))
-                        .child(icon("chevron-right", 14.).text_color(content(0.3))),
-                )
+                .child(toggle)
                 .into_any_element(),
         )
     }
@@ -959,10 +975,11 @@ impl Board {
             .flex()
             .flex_col()
             .items_center()
+            // The same column and inset as the docked composer below it.
             .children(self.reply(cx).map(|reply| {
                 div()
                     .w_full()
-                    .max_w(px(740.))
+                    .max_w(px(crate::conversation::COMPOSER_COLUMN))
                     .px(px(10.))
                     .mb_1()
                     .child(
