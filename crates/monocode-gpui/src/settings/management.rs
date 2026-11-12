@@ -378,7 +378,7 @@ impl SettingsView {
                 );
                 if editing {
                     rows.push(form_field("CLI path", name, 32.));
-                    rows.push(note("Enter the absolute path to the CLI executable. Changes apply after restarting MonoCode."));
+                    rows.push(note("Enter the absolute path to the CLI executable. Changes apply after restarting Placeholder."));
                 } else {
                     rows.push(
                         div()

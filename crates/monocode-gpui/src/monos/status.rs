@@ -59,7 +59,7 @@ impl Status {
             } else {
                 button.setTitle(&NSString::from_str("Mono"));
             }
-            button.setToolTip(Some(&NSString::from_str("MonoCode")));
+            button.setToolTip(Some(&NSString::from_str("Placeholder")));
         }
         Some(Self {
             item,
@@ -95,7 +95,7 @@ impl Status {
             run.clone(),
         ));
         menu.addItem(&NSMenuItem::separatorItem(mtm));
-        menu.addItem(&Item::new(mtm, "Quit MonoCode", "quit".into(), run));
+        menu.addItem(&Item::new(mtm, "Quit Placeholder", "quit".into(), run));
         self.item.setMenu(Some(&menu));
     }
 }

@@ -675,7 +675,7 @@ impl Completion {
                 (
                     "operator",
                     "Operator",
-                    "Give this thread access to MonoCode",
+                    "Give this thread access to Placeholder",
                 ),
                 ("plan", "Plan mode", "Review a plan before building"),
                 (

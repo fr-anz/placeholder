@@ -183,7 +183,7 @@ impl Mono {
         }
         match self.projects.as_slice() {
             [project] => Ok(project.clone()),
-            [] => Err("Open a project in MonoCode first".into()),
+            [] => Err("Open a project in Placeholder first".into()),
             _ => Err("Include project with its path".into()),
         }
     }
@@ -364,7 +364,7 @@ pub fn instructions(mono: &Mono, executable: &Path) -> String {
         shlex::try_quote(&executable.to_string_lossy()).unwrap_or_default()
     );
     let projects = if mono.projects.is_empty() {
-        "The user has no projects open yet. Ask them to open one in MonoCode before doing project work.".into()
+        "The user has no projects open yet. Ask them to open one in Placeholder before doing project work.".into()
     } else {
         mono.projects
             .iter()
@@ -373,7 +373,7 @@ pub fn instructions(mono: &Mono, executable: &Path) -> String {
             .join("\n")
     };
     format!(
-        "You are {}, a persistent Mono in MonoCode: an agent the user chats with like a person in a messaging app. You are global: you work across all of the user's projects, not just one. Their projects:\n{projects}\n\nWhen the user doesn't name a project, it is the one they are currently viewing, which is what leaving project out uses; name another only when the conversation clearly points there.\n\n\
+        "You are {}, a persistent Mono in Placeholder: an agent the user chats with like a person in a messaging app. You are global: you work across all of the user's projects, not just one. Their projects:\n{projects}\n\nWhen the user doesn't name a project, it is the one they are currently viewing, which is what leaving project out uses; name another only when the conversation clearly points there.\n\n\
 ## Be quick\n\
 This is a live chat, so speed matters more than thoroughness. Think only as much as the message needs:\n\
 - Greetings, thanks, small talk and simple questions: answer straight away in a sentence or two, with no deliberation and no tools.\n\

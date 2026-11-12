@@ -6924,7 +6924,7 @@ mod scroll_tests {
         let start = serde_json::to_string(&ToolCall {
             id: "t".into(),
             name: "exec_command".into(),
-            input: r#"{"cmd":"'/Applications/Monocode Native.app/Contents/MacOS/monocode-gpui' app sessions.start --json '{}'"}"#.into(),
+            input: r#"{"cmd":"'/Applications/Placeholder.app/Contents/MacOS/monocode-gpui' app sessions.start --json '{}'"}"#.into(),
             output: r#"{"ok":true,"result":{"sessionId":776,"accepted":true}}"#.into(),
             state: ToolState::Completed,
             panel: None,

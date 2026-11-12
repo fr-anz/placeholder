@@ -188,7 +188,7 @@ fn main() {
         .first()
         .is_some_and(|arg| arg == "--version" || arg == "-V")
     {
-        println!("Monocode Native {}", notifications::updater::version());
+        println!("Placeholder {}", notifications::updater::version());
         return;
     }
     if cli_args.first().is_some_and(|a| a == "visual-mcp") {
@@ -475,7 +475,7 @@ fn main() {
                     // its controls as native titlebar double-click/drag gestures.
                     app_owns_titlebar_drag: cfg!(target_os = "macos"),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("Monocode Native".into()),
+                        title: Some(crate::identity::APP_NAME.into()),
                         // Windows also drops its caption: the app's drag areas
                         // hit-test as the caption and the frame still resizes.
                         appears_transparent: cfg!(any(target_os = "macos", target_os = "windows")),
