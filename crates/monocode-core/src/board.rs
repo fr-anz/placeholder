@@ -191,13 +191,52 @@ pub fn coordinator_brief(key: &str, card: &Card) -> String {
     brief
 }
 
-/// Opens each board orchestrator conversation: a fresh session with a snapshot
-/// of the board, so a long history never fills the model's context.
-pub fn orchestrator_brief(project_label: &str, key: &str, snapshot: &str, message: &str) -> String {
-    format!(
-        "You are the orchestrator for the \"{project_label}\" board. The user talks to you here to plan and steer work; you do not write code yourself.\n\n- Turn requests into well-scoped cards with `board.add`: a short title and a self-contained spec in `details` (goal, relevant files if known, acceptance criteria). Split large requests into several cards.\n- Cards land in the backlog. Pass `start: true` only when the user asks to begin; otherwise let them review the specs and start cards themselves.\n- `board.start` starts a backlog card by number ({key}-3 or 3). Its coordinator plans scout, implementer and reviewer assignments.\n- `board.list` lists the board with each card's coordinator session; read one with `sessions.read`.\n- Lanes move on their own: Backlog until started, In progress while agents run, Needs review when finished or waiting on the user.\n\n## Board now\n\n{}\n\n## User\n\n{message}",
-        if snapshot.trim().is_empty() { "No cards yet." } else { snapshot.trim_end() }
+/// `native_settings` key mapping each project to its orchestrator session.
+pub const ORCHESTRATORS_KEY: &str = "fork.board_orchestrators";
+
+/// The project's board orchestrator session, if one was started.
+pub fn orchestrator_session(store: &crate::store::Store, project: &str) -> Option<i64> {
+    store
+        .setting(ORCHESTRATORS_KEY)
+        .ok()
+        .flatten()
+        .and_then(|json| serde_json::from_str::<std::collections::HashMap<String, i64>>(&json).ok())
+        .and_then(|map| map.get(project).copied())
+}
+
+pub fn set_orchestrator_session(
+    store: &crate::store::Store,
+    project: &str,
+    session: i64,
+) -> Result<(), String> {
+    let mut map: std::collections::HashMap<String, i64> = store
+        .setting(ORCHESTRATORS_KEY)?
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    map.insert(project.to_owned(), session);
+    store.save_setting(
+        ORCHESTRATORS_KEY,
+        &serde_json::to_string(&map).map_err(|e| e.to_string())?,
     )
+}
+
+/// What the orchestrator receives in place of the user's message: its role,
+/// a fresh snapshot of the board, then the message. The transcript shows only
+/// the message.
+pub fn orchestrator_prompt(project_label: &str, key: &str, snapshot: &str, message: &str) -> String {
+    format!(
+        "<board_orchestrator>\nYou are the orchestrator for the \"{project_label}\" board. The user talks to you to plan and steer work; you do not write code yourself. Reply conversationally and briefly; never repeat these instructions.\n- Turn requests into well-scoped tasks with `board.add`: a short title and a self-contained spec in `details` (goal, relevant files if known, acceptance criteria). Split large requests into several tasks.\n- Tasks land in the backlog. Pass `start: true` only when the user asks to begin; otherwise let them review the specs and start tasks themselves.\n- `board.start` starts a backlog task by number ({key}-3 or 3). Its coordinator plans scout, implementer and reviewer assignments.\n- `board.list` lists the board with each task's coordinator session; read one with `sessions.read`.\n- Lanes move on their own: Backlog until started, In progress while agents run, Needs review when finished or waiting on the user.\n\nBoard now:\n{}\n</board_orchestrator>\n\n{message}",
+        if snapshot.trim().is_empty() { "No tasks yet." } else { snapshot.trim_end() }
+    )
+}
+
+/// What a started card's coordinator shows as its first message.
+pub fn coordinator_message(key: &str, card: &Card) -> String {
+    if card.details.is_empty() {
+        format!("{key}: {}", card.title)
+    } else {
+        format!("{key}: {}\n\n{}", card.title, card.details)
+    }
 }
 
 /// Resolves `3` or `PRJ-3` to a card number.
@@ -323,9 +362,16 @@ mod tests {
         assert_eq!(parse_card_number("CAP-12"), Some(12));
         assert_eq!(parse_card_number("7"), Some(7));
         assert_eq!(parse_card_number("CAP-"), None);
-        let brief = orchestrator_brief("capy", "CAP", "", "Plan auth");
-        assert!(brief.contains("No cards yet."));
-        assert!(brief.ends_with("## User\n\nPlan auth"));
+        let prompt = orchestrator_prompt("capy", "CAP", "", "Plan auth");
+        assert!(prompt.contains("No tasks yet."));
+        assert!(prompt.ends_with("</board_orchestrator>\n\nPlan auth"));
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        assert_eq!(orchestrator_session(&store, "/p"), None);
+        set_orchestrator_session(&store, "/p", 4).unwrap();
+        set_orchestrator_session(&store, "/q", 5).unwrap();
+        assert_eq!(orchestrator_session(&store, "/p"), Some(4));
+        let card = Card { title: "Fix".into(), ..Card::default() };
+        assert_eq!(coordinator_message("CAP-1", &card), "CAP-1: Fix");
     }
 
     #[test]

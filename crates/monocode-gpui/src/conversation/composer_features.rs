@@ -457,6 +457,14 @@ impl Conversation {
             monocode_core::response::limit(&format!("{}\n{}", self.status, text), 12_000),
         )
     }
+    /// The prose of the agent's latest reply, after the last user message.
+    pub(crate) fn latest_reply(&self, cx: &gpui::App) -> String {
+        let rows = self.transcript.read(cx).source_rows();
+        match rows.iter().rposition(|row| row.role == "user") {
+            Some(start) => monocode_core::response::prose(&rows[start + 1..]),
+            None => String::new(),
+        }
+    }
     pub(crate) fn ready_for_external(&self, cx: &gpui::App) -> bool {
         self.history_ready()
             && !self.editing_last_turn.pending()

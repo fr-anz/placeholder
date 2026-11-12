@@ -31,6 +31,15 @@ pub(crate) struct LeadInfo {
     pub workers: Vec<String>,
 }
 
+/// The project's board orchestrator, as the message bar shows it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct OrchestratorStatus {
+    pub session: i64,
+    pub busy: bool,
+    /// Prose of its latest reply.
+    pub reply: String,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Active,
@@ -45,6 +54,7 @@ pub(crate) struct Board {
     cards: Vec<Card>,
     states: HashMap<i64, LeadState>,
     infos: HashMap<i64, LeadInfo>,
+    orchestrator: Option<OrchestratorStatus>,
     tab: Tab,
     composing: bool,
     title: Entity<Input>,
@@ -159,7 +169,7 @@ impl Board {
         let ask = cx.new(|cx| {
             Input::field(
                 "Message the board orchestrator",
-                "Message the orchestrator or start a task…",
+                "Message the orchestrator to plan or start tasks…",
                 content(0.35),
                 cx,
             )
@@ -177,6 +187,7 @@ impl Board {
             cards: Vec::new(),
             states: HashMap::new(),
             infos: HashMap::new(),
+            orchestrator: None,
             tab: Tab::Active,
             composing: false,
             title,
@@ -204,6 +215,17 @@ impl Board {
         if self.states != states || self.infos != infos {
             self.states = states;
             self.infos = infos;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_orchestrator(
+        &mut self,
+        status: Option<OrchestratorStatus>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.orchestrator != status {
+            self.orchestrator = status;
             cx.notify();
         }
     }
@@ -337,25 +359,7 @@ impl Board {
             .gap_5()
             .border_b_1()
             .border_color(content(0.08))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child("Board"))
-                    .when(!self.cwd.is_empty(), |d| {
-                        d.child(
-                            div()
-                                .px_1p5()
-                                .rounded_sm()
-                                .bg(content(0.07))
-                                .text_size(px(11.))
-                                .text_color(content(0.55))
-                                .font_family(crate::fonts::mono())
-                                .child(self.key()),
-                        )
-                    }),
-            )
+            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child("Board"))
             .child(
                 div()
                     .h_full()
@@ -363,49 +367,6 @@ impl Board {
                     .gap_4()
                     .child(tab("board-tab-active", "Active", active, Tab::Active, cx))
                     .child(tab("board-tab-archived", "Archived", archived, Tab::Archived, cx)),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("board-orchestrator")
-                    .role(Role::Button)
-                    .aria_label("Message the board orchestrator")
-                    .cursor_pointer()
-                    .h(px(28.))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .gap_1p5()
-                    .rounded_md()
-                    .text_size(px(12.))
-                    .text_color(content(0.6))
-                    .hover(|s| s.bg(content(0.06)).text_color(content(1.)))
-                    .child(icon("git-merge", 14.))
-                    .child("Orchestrator")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        window.focus(&this.ask.focus_handle(cx), cx)
-                    })),
-            )
-            .child(
-                div()
-                    .id("board-new-task")
-                    .role(Role::Button)
-                    .aria_label("New task")
-                    .cursor_pointer()
-                    .h(px(28.))
-                    .px(px(10.))
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .rounded_md()
-                    .bg(content(0.92))
-                    .text_color(floating_fill().opacity(1.))
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .hover(|s| s.bg(content(0.8)))
-                    .child(icon("plus", 13.).text_color(floating_fill().opacity(1.)))
-                    .child("Task")
-                    .on_click(cx.listener(|this, _, window, cx| this.compose(window, cx))),
             )
             .into_any_element()
     }
@@ -699,13 +660,32 @@ impl Board {
                                     .text_color(color)
                                     .child(lane.label()),
                             )
-                            .child(div().flex_1())
                             .child(
                                 div()
                                     .text_size(px(12.))
                                     .text_color(content(0.4))
                                     .child(count.to_string()),
-                            ),
+                            )
+                            .child(div().flex_1())
+                            .when(lane == Lane::Backlog, |d| {
+                                d.child(
+                                    div()
+                                        .id("board-add-task")
+                                        .role(Role::Button)
+                                        .aria_label("Add a task")
+                                        .cursor_pointer()
+                                        .size(px(22.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded_md()
+                                        .hover(|s| s.bg(content(0.08)))
+                                        .child(icon("plus", 14.))
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.compose(window, cx)
+                                        })),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -726,7 +706,7 @@ impl Board {
                                         .text_size(px(12.))
                                         .text_color(content(0.35))
                                         .child(match lane {
-                                            Lane::Backlog => "No tasks. Press + Task or ask the orchestrator.",
+                                            Lane::Backlog => "No tasks yet. Ask the orchestrator below, or press +.",
                                             Lane::InProgress => "Started tasks appear here while agents work.",
                                             Lane::NeedsReview => "Finished tasks and plans waiting on you.",
                                         }),
@@ -774,6 +754,97 @@ impl Board {
             .into_any_element()
     }
 
+    fn reply_strip(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let status = self.orchestrator.clone()?;
+        // A short single-line excerpt: replies can be long Markdown.
+        let collapsed = status.reply.split_whitespace().collect::<Vec<_>>().join(" ");
+        let mut reply: String = collapsed.chars().take(280).collect();
+        if collapsed.chars().count() > 280 {
+            reply.push('…');
+        }
+        if reply.is_empty() && !status.busy {
+            return None;
+        }
+        let session = status.session;
+        Some(
+            div()
+                .w_full()
+                .max_w(px(720.))
+                .px_3()
+                .py_2p5()
+                .flex()
+                .gap_2p5()
+                .rounded_xl()
+                .border_1()
+                .border_color(content(0.08))
+                .bg(pane_fill())
+                .child(
+                    div()
+                        .size(px(22.))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_md()
+                        .bg(content(0.08))
+                        .child(icon("git-merge", 13.)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .text_size(px(12.))
+                                .child(div().font_weight(FontWeight::SEMIBOLD).child("Orchestrator"))
+                                .when(status.busy, |d| {
+                                    d.child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_1()
+                                            .text_color(amber(1.))
+                                            .child(icon("loader", 12.).text_color(amber(1.)))
+                                            .child("Working…"),
+                                    )
+                                })
+                                .child(div().flex_1())
+                                .child(
+                                    div()
+                                        .id("board-open-orchestrator")
+                                        .role(Role::Button)
+                                        .aria_label("Open the orchestrator chat")
+                                        .cursor_pointer()
+                                        .text_color(content(0.5))
+                                        .hover(|s| s.text_color(content(1.)))
+                                        .child("Open chat")
+                                        .on_click(cx.listener(move |_, _, _, cx| {
+                                            cx.emit(Event::OpenSession(session))
+                                        })),
+                                ),
+                        )
+                        .when(!reply.is_empty(), |d| {
+                            d.child(
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(17.))
+                                    .text_color(content(0.7))
+                                    .max_h(px(51.))
+                                    .overflow_hidden()
+                                    .child(reply),
+                            )
+                        }),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn message_bar(&self, cx: &mut Context<Self>) -> AnyElement {
         let can_ask = !self.ask.read(cx).content.trim().is_empty() && !self.cwd.is_empty();
         div()
@@ -782,7 +853,10 @@ impl Board {
             .pb_4()
             .pt_2()
             .flex()
-            .justify_center()
+            .flex_col()
+            .items_center()
+            .gap_2()
+            .children(self.reply_strip(cx))
             .child(
                 div()
                     .w_full()

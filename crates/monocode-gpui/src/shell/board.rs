@@ -18,9 +18,7 @@ impl Shell {
                     board::Event::Close => this.close_app_view(window, cx),
                     board::Event::OpenSession(id) => this.open(*id, window, cx),
                     board::Event::Start(card) => this.start_board_card(card.clone(), cx),
-                    board::Event::Ask(message) => {
-                        this.ask_board_orchestrator(message.clone(), window, cx)
-                    }
+                    board::Event::Ask(message) => this.message_board_orchestrator(message.clone(), cx),
                 },
             ));
             self.board = Some(view);
@@ -102,7 +100,23 @@ impl Shell {
             .filter(|&&lead| self.session_summaries.contains_key(&lead) || self.sessions.contains_key(&lead))
             .map(|&lead| (lead, self.lead_info(lead, cx)))
             .collect();
-        view.update(cx, |view, cx| view.set_states(states, infos, cx));
+        let orchestrator = locked(&self.store)
+            .ok()
+            .and_then(|store| monocode_core::board::orchestrator_session(&store, &self.workspace.project))
+            .filter(|id| self.session_summaries.contains_key(id) || self.sessions.contains_key(id))
+            .map(|id| board::OrchestratorStatus {
+                session: id,
+                busy: self.session_metadata(id, cx).busy,
+                reply: self
+                    .sessions
+                    .get(&id)
+                    .map(|v| v.read(cx).latest_reply(cx))
+                    .unwrap_or_default(),
+            });
+        view.update(cx, |view, cx| {
+            view.set_states(states, infos, cx);
+            view.set_orchestrator(orchestrator, cx);
+        });
     }
 
     /// Opens the card's coordinator: an orchestrator session in the card's
@@ -133,6 +147,7 @@ impl Shell {
             ..Default::default()
         };
         let prompt = monocode_core::board::coordinator_brief(&key, &card);
+        let visible = monocode_core::board::coordinator_message(&key, &card);
         let title = format!("{key} · {}", card.title);
         let store = self.store.clone();
         let work = cx.background_executor().spawn(async move {
@@ -152,7 +167,10 @@ impl Shell {
                 Ok((summary, settings, prompt)) => {
                     let id = summary.id;
                     this.add(summary, cx);
-                    this.sessions[&id].update(cx, |view, cx| view.quick_submit(prompt, settings, cx));
+                    this.sessions[&id].update(cx, |view, cx| {
+                        view.install_transfer(settings, None, cx);
+                        view.send_with_context(visible, prompt, cx);
+                    });
                     // Saved here, not by the view: agents start cards with the board closed.
                     let saved = locked(&this.store).and_then(|store| {
                         monocode_core::board::update(&store, &card.id, |c| c.lead = Some(id))
@@ -267,26 +285,38 @@ impl Shell {
         result
     }
 
-    /// Each question from the board opens a fresh orchestrator session with app
-    /// access and a snapshot of the board.
-    fn ask_board_orchestrator(
-        &mut self,
-        message: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// Sends a board message to the project's orchestrator, creating it on the
+    /// first message. The transcript shows the message; the agent also gets its
+    /// role and a fresh snapshot of the board.
+    fn message_board_orchestrator(&mut self, message: String, cx: &mut Context<Self>) {
         let cwd = self.workspace.project.clone();
         if cwd.is_empty() {
             return;
         }
         let label = self.project_label(&cwd);
         let key = self.board_key(&cwd);
-        let prompt = monocode_core::board::orchestrator_brief(
+        let prepared = monocode_core::board::orchestrator_prompt(
             &label,
             &key,
             &self.board_snapshot(&cwd, cx),
             &message,
         );
+        let existing = locked(&self.store)
+            .ok()
+            .and_then(|store| monocode_core::board::orchestrator_session(&store, &cwd))
+            .filter(|id| {
+                self.session_summaries
+                    .get(id)
+                    .is_some_and(|s| !s.archived)
+                    || self.sessions.contains_key(id)
+            });
+        if let Some(id) = existing
+            && let Some(view) = self.ensure_session(id, cx)
+        {
+            view.update(cx, |view, cx| view.send_with_context(message, prepared, cx));
+            self.sync_board(cx);
+            return;
+        }
         let choice = self.new_chat_choice(&cwd);
         let kind = choice.kind;
         let settings = monocode_core::agent::Settings {
@@ -306,24 +336,29 @@ impl Shell {
             operator_enabled: true,
             ..Default::default()
         };
-        let title = format!("{key} board · {}", message.lines().next().unwrap_or_default());
+        let title = format!("Orchestrator · {label}");
         let store = self.store.clone();
+        let project = cwd.clone();
         let work = cx.background_executor().spawn(async move {
             let store = locked(&store)?;
             let mut summary = store.create(kind.id(), &cwd)?;
-            summary.title = title.chars().take(120).collect();
+            summary.title = title;
             store.title(summary.id, &summary.title)?;
             store.save_agent_settings(summary.id, &settings)?;
-            Ok::<_, String>((summary, settings, prompt))
+            monocode_core::board::set_orchestrator_session(&store, &project, summary.id)?;
+            Ok::<_, String>((summary, settings))
         });
         cx.spawn(async move |this, cx| {
             let result = work.await;
-            let _ = this.update_in(cx, |this, window, cx| match result {
-                Ok((summary, settings, prompt)) => {
+            let _ = this.update(cx, |this, cx| match result {
+                Ok((summary, settings)) => {
                     let id = summary.id;
                     this.add(summary, cx);
-                    this.sessions[&id].update(cx, |view, cx| view.quick_submit(prompt, settings, cx));
-                    this.activate_session(id, window, cx);
+                    this.sessions[&id].update(cx, |view, cx| {
+                        view.install_transfer(settings, None, cx);
+                        view.send_with_context(message, prepared, cx);
+                    });
+                    this.sync_board(cx);
                     this.persist(cx);
                 }
                 Err(error) => {

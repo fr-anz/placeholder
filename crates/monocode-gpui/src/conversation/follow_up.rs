@@ -100,6 +100,32 @@ impl Conversation {
     ) {
         self.enqueue_follow_up_inverted(prompt, mode, false, cx);
     }
+    /// Sends `text` as the user's message while the agent receives `prepared`
+    /// instead; it queues behind a running turn like any follow-up.
+    pub(crate) fn send_with_context(
+        &mut self,
+        text: String,
+        prepared: String,
+        cx: &mut Context<Self>,
+    ) {
+        // Restoring history reloads the saved queue; queue after it, as sends do.
+        if self.needs_history_restore() {
+            self.defer_history_action(
+                move |this, cx| this.send_with_context(text, prepared, cx),
+                cx,
+            );
+            return;
+        }
+        let mut message = self.message(text, Vec::new(), None, cx);
+        message.prepared_prompt = Some(prepared);
+        self.follow_ups.motion.insert(
+            &message.id,
+            self.follow_ups.state.messages.is_empty(),
+            !cx.reduce_motion(),
+        );
+        self.follow_ups.state.messages.push(message);
+        self.save_follow_ups(cx);
+    }
     /// Whether a plain follow-up sent now steers the turn rather than queuing;
     /// `invert` flips the preference, as Cmd+Enter does.
     pub(super) fn steers_follow_up(&self, invert: bool, cx: &gpui::App) -> bool {
