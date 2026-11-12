@@ -4,6 +4,7 @@
 //! card. The message bar is the board orchestrator's own chat composer.
 use crate::{
     input::{self, Input},
+    popover::{Anchor, AnchorSlot, Menu, MenuAction, MenuEvent, Side, menu_popover},
     runtime::{Database, locked},
     theme::*,
 };
@@ -65,6 +66,11 @@ pub(crate) struct Board {
     compose_mode: CardMode,
     /// The orchestrator's reply above the composer is folded to one line.
     reply_folded: bool,
+    /// Each backlog card's Start arrow, where its menu opens.
+    start_anchors: HashMap<String, AnchorSlot>,
+    /// The open "Start solo / Start with orchestrator" menu and its card.
+    start_menu: Option<(String, Entity<Menu>)>,
+    _start_menu_events: Option<Subscription>,
     title: Entity<Input>,
     details: Entity<Input>,
     error: Option<String>,
@@ -214,6 +220,9 @@ impl Board {
             composing: false,
             compose_mode: CardMode::default(),
             reply_folded: false,
+            start_anchors: HashMap::new(),
+            start_menu: None,
+            _start_menu_events: None,
             title,
             details,
             error: None,
@@ -283,6 +292,11 @@ impl Board {
                     .collect();
                 // Newest first, like the references.
                 self.cards.sort_by(|a, b| b.number.cmp(&a.number));
+                let cards = &self.cards;
+                self.start_anchors.retain(|id, _| cards.iter().any(|c| c.id == *id));
+                for card in cards.iter().filter(|c| c.lead.is_none()) {
+                    self.start_anchors.entry(card.id.clone()).or_default();
+                }
             }
             Err(error) => self.error = Some(error),
         }
@@ -450,12 +464,7 @@ impl Board {
         let info = card.lead.and_then(|lead| self.infos.get(&lead)).cloned();
         let id = card.id.clone();
 
-        let mut actions = div()
-            .flex()
-            .items_center()
-            .gap_1p5()
-            .child(self.mode_chip(card, lane == Some(Lane::Backlog), cx))
-            .child(div().flex_1());
+        let mut actions = div().flex().items_center().gap_1p5();
         match lane {
             Some(Lane::Backlog) => {
                 let start = card.clone();
@@ -470,13 +479,7 @@ impl Board {
                                 }
                             })),
                     )
-                    .child(
-                        card_button(format!("board-start-{id}").into(), "Start", Tone::Accent)
-                            .on_click(cx.listener(move |_, _, _, cx| {
-                                cx.stop_propagation();
-                                cx.emit(Event::Start(start.clone()))
-                            })),
-                    );
+                    .child(self.start_button(&start, cx));
             }
             Some(Lane::InProgress) => {}
             Some(Lane::NeedsReview) => {
@@ -924,44 +927,118 @@ impl Board {
             .into_any_element()
     }
 
-    /// The card's mode. Before a card starts, a click switches it.
-    fn mode_chip(&self, card: &Card, editable: bool, cx: &mut Context<Self>) -> AnyElement {
-        let mode = card.mode;
-        let (glyph, tone) = match mode {
-            CardMode::Solo => ("user", content(0.6)),
-            CardMode::Orchestrate => ("git-merge", accent_color()),
+    /// Start, in the card's mode, with an arrow for "Start solo" and
+    /// "Start with orchestrator".
+    fn start_button(&self, card: &Card, cx: &mut Context<Self>) -> AnyElement {
+        let id = card.id.clone();
+        let anchor = self.start_anchors.get(&id).cloned().unwrap_or_default();
+        let open = self.start_menu.as_ref().is_some_and(|(c, _)| *c == id);
+        let glyph = match card.mode {
+            CardMode::Solo => "user",
+            CardMode::Orchestrate => "share",
         };
-        let chip = div()
-            .id(SharedString::from(format!("board-mode-{}", card.id)))
-            .h(px(22.))
-            .px(px(7.))
+        let start = card.clone();
+        let half = |el: Stateful<gpui::Div>| {
+            el.h(px(26.))
+                .flex()
+                .items_center()
+                .bg(accent_color())
+                .text_color(gpui::white())
+                .cursor_pointer()
+                .hover(|s| s.opacity(0.9))
+        };
+        div()
             .flex()
             .items_center()
-            .gap_1()
-            .rounded_md()
-            .border_1()
-            .border_color(content(0.1))
-            .text_size(px(11.))
-            .text_color(tone)
-            .child(icon(glyph, 11.).text_color(tone))
-            .child(mode.label());
-        if !editable {
-            return chip.into_any_element();
-        }
-        let id = card.id.clone();
-        chip.role(Role::Button)
-            .aria_label(format!(
-                "{} card; switch to {}",
-                mode.label(),
-                mode.toggled().label()
-            ))
-            .cursor_pointer()
-            .hover(|s| s.bg(content(0.06)))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                cx.stop_propagation();
-                this.change(&id, |c| c.mode = c.mode.toggled(), cx)
-            }))
+            .gap(px(1.))
+            .child(
+                half(div().id(SharedString::from(format!("board-start-{id}"))))
+                    .role(Role::Button)
+                    .aria_label(format!(
+                        "Start {}",
+                        match card.mode {
+                            CardMode::Solo => "solo",
+                            CardMode::Orchestrate => "with orchestrator",
+                        }
+                    ))
+                    .pl(px(9.))
+                    .pr(px(8.))
+                    .gap_1()
+                    .rounded_l_md()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(icon(glyph, 11.).text_color(gpui::white()))
+                    .child("Start")
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.emit(Event::Start(start.clone()))
+                    })),
+            )
+            .child(
+                half(div().id(SharedString::from(format!("board-start-menu-{id}"))))
+                    .role(Role::Button)
+                    .aria_label("More ways to start")
+                    .aria_expanded(open)
+                    .px(px(5.))
+                    .rounded_r_md()
+                    .child(anchor.probe())
+                    .child(icon("chevron-down", 12.).text_color(gpui::white()))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.open_start_menu(&id, window, cx)
+                    })),
+            )
             .into_any_element()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_start_menu_for_test(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_start_menu(id, window, cx)
+    }
+    #[cfg(test)]
+    pub(crate) fn start_menu_for_test(&self) -> Option<Entity<Menu>> {
+        self.start_menu.as_ref().map(|(_, menu)| menu.clone())
+    }
+    fn open_start_menu(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.start_menu.take().is_some_and(|(c, _)| c == id) {
+            self._start_menu_events = None;
+            cx.notify();
+            return;
+        }
+        let Some(card) = self.cards.iter().find(|c| c.id == id).cloned() else {
+            return;
+        };
+        let items = vec![
+            MenuAction::new("solo", "Start solo")
+                .icon("user")
+                .description("One implementer works it, with no planning turn")
+                .checked(card.mode == CardMode::Solo)
+                .into(),
+            MenuAction::new("orchestrate", "Start with orchestrator")
+                .icon("share")
+                .description("A coordinator plans several workers")
+                .checked(card.mode == CardMode::Orchestrate)
+                .into(),
+        ];
+        let menu = cx.new(|cx| Menu::new("Start", items, window, cx));
+        let card_id = card.id.clone();
+        self._start_menu_events = Some(cx.subscribe(&menu, move |this, _, event: &MenuEvent, cx| {
+            this.start_menu = None;
+            this._start_menu_events = None;
+            if let MenuEvent::Picked(pick, _) = event {
+                let mode = if pick.as_ref() == "solo" { CardMode::Solo } else { CardMode::Orchestrate };
+                let started = locked(&this.store)
+                    .and_then(|s| board::update(&s, &card_id, |c| c.mode = mode));
+                match started {
+                    Ok(card) => cx.emit(Event::Start(card)),
+                    Err(error) => this.error = Some(error),
+                }
+                this.refresh(cx);
+            }
+            cx.notify();
+        }));
+        self.start_menu = Some((card.id, menu));
+        cx.notify();
     }
 
     /// The orchestrator's latest reply over its real chat composer, so the
@@ -1024,7 +1101,10 @@ impl gpui::Render for Board {
             .text_color(content(1.))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
-                    if this.composing {
+                    if this.start_menu.take().is_some() {
+                        this._start_menu_events = None;
+                        cx.notify();
+                    } else if this.composing {
                         this.cancel_compose(cx);
                     } else {
                         cx.emit(Event::Close);
@@ -1046,6 +1126,10 @@ impl gpui::Render for Board {
             .child(body)
             .track_focus(&self.focus)
             .when(!self.cwd.is_empty(), |d| d.child(self.composer(cx)))
+            .children(self.start_menu.as_ref().and_then(|(id, menu)| {
+                let anchor = self.start_anchors.get(id)?.clone();
+                Some(menu_popover(menu, Anchor::Slot(anchor), cx).side(Side::Bottom))
+            }))
     }
 }
 

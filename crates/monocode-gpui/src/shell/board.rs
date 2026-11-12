@@ -586,6 +586,42 @@ mod tests {
     }
 
     #[gpui::test]
+    fn the_start_menu_picks_a_mode_and_starts_the_card(cx: &mut TestAppContext) {
+        let (window, _, _) = crate::shell::tests::window(cx);
+        let card_id = window
+            .update(cx, |shell, w, cx| {
+                let project = shell.workspace.project.clone();
+                let card = locked(&shell.store)
+                    .and_then(|s| monocode_core::board::add(&s, &project, "Fix typo", "", CardMode::Orchestrate))
+                    .unwrap();
+                shell.open_board(w, cx);
+                let board = shell.board.clone().unwrap();
+                board.update(cx, |b, cx| b.open_start_menu_for_test(&card.id, w, cx));
+                let menu = board.read(cx).start_menu_for_test().expect("the arrow opens a menu");
+                menu.update(cx, |_, cx| {
+                    cx.emit(crate::popover::MenuEvent::Picked("solo".into(), None))
+                });
+                card.id.clone()
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |shell, _, cx| {
+                let board = shell.board.clone().unwrap();
+                assert!(board.read(cx).start_menu_for_test().is_none(), "picking closes it");
+                let saved = monocode_core::board::load(&locked(&shell.store).unwrap())
+                    .into_iter()
+                    .find(|c| c.id == card_id)
+                    .unwrap();
+                assert_eq!(saved.mode, CardMode::Solo, "the pick is the card's mode");
+                // The fixture's project folder does not exist, so the start
+                // reports that instead of launching an agent.
+                assert!(shell.error.as_deref().is_some_and(|e| e.contains("project folder")));
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn the_board_composer_sets_card_modes_with_solo_and_orchestrator_tags(cx: &mut TestAppContext) {
         use monocode_core::board::{CardsPreference, load_cards_preference};
         let (window, _, _) = crate::shell::tests::window(cx);
