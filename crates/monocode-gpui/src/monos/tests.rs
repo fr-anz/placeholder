@@ -2600,3 +2600,37 @@ fn monos_are_global_across_the_apps_projects(cx: &mut TestAppContext) {
         }
     });
 }
+
+#[gpui::test]
+fn a_call_without_a_project_uses_the_one_being_viewed(cx: &mut TestAppContext) {
+    let s = setup(cx);
+    let second = s.root.join("second-project");
+    std::fs::create_dir_all(&second).unwrap();
+    let second = second.to_string_lossy().to_string();
+    let view = |project: &str, cx: &mut TestAppContext| {
+        let project = project.to_string();
+        s.window
+            .update(cx, |shell, _, cx| {
+                shell.workspace.add_project(&project);
+                shell.workspace.project = project;
+                shell.persist(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+    };
+    let start = |request: &str, cx: &mut TestAppContext| {
+        call(
+            &s,
+            request,
+            "sessions.start",
+            json!({"prompt":"Look around","title":"Look","draft":true}),
+            cx,
+        )
+        .try_recv()
+        .unwrap()
+    };
+    view(&second, cx);
+    assert_eq!(start("in-second", cx).unwrap()["project"], json!(second));
+    view(&s.project, cx);
+    assert_eq!(start("in-first", cx).unwrap()["project"], json!(s.project));
+}

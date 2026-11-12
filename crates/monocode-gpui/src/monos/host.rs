@@ -266,7 +266,19 @@ impl Monos {
             || action.starts_with("folders.")
             || action.starts_with("worktrees.")
         {
-            match mono.project(input.get("project").and_then(Value::as_str)) {
+            // Monos are global: a call that names no project works on the
+            // one the user is viewing, when it is one of theirs.
+            let viewing = self
+                .owner
+                .upgrade()
+                .map(|o| o.read(cx).workspace.project.clone())
+                .filter(|p| mono.works_on(p));
+            let requested = input
+                .get("project")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or(viewing);
+            match mono.project(requested.as_deref()) {
                 Ok(p) => p,
                 Err(e) => {
                     self.finish_call(call, Err(e), cx);
