@@ -143,13 +143,13 @@ remains as recorded above and in [preview limitations](parity.md).
 
 ### Review fixes
 
-The pre-release review fixes retain a Mono's selected permissions for heartbeat
+The pre-release review fixes retain a Minion's selected permissions for heartbeat
 runs, exclude read-only GitHub review lookups from contribution counts, and
 resolve commit IDs and line counts in the command's checkout. Regression cases
 cover all five permission modes, submitted versus pending reviews, quoted and
 repeated `git -C` options, explicit tool working directories and commits batched
 across multiple checkouts. The permission fixture also exposed and now covers
-a crash when rendering the Mono's usage-limit notice.
+a crash when rendering the Minion's usage-limit notice.
 
 Local revalidation with Rust 1.99.1 passed 29 native script tests, 644 core tests
 (2 ignored), and 748 GPUI tests (11 ignored). Native workspace formatting,

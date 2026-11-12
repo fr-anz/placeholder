@@ -191,8 +191,8 @@ impl Shell {
         } else {
             self.close_preview(cx);
             self.leave_app_views(cx);
-            if let Some(monos) = &self.monos {
-                monos.update(cx, |m, cx| m.close(cx));
+            if let Some(minions) = &self.minions {
+                minions.update(cx, |m, cx| m.close(cx));
             }
             if self.settings.is_some() {
                 self.close_settings(window, cx);
@@ -205,7 +205,7 @@ impl Shell {
             .values()
             .cloned()
             .chain(
-                self.monos
+                self.minions
                     .as_ref()
                     .map(|m| m.read(cx).search_conversations())
                     .unwrap_or_default(),
@@ -224,7 +224,7 @@ impl Shell {
         let summaries = summaries.into_values().collect();
         let live = conversations
             .iter()
-            // A paged Mono's saved search covers turns not loaded yet.
+            // A paged Minion's saved search covers turns not loaded yet.
             .filter(|s| {
                 s.read(cx).history_loaded() && s.read(cx).transcript.read(cx).history_complete()
             })
@@ -338,8 +338,8 @@ impl Shell {
             }
             return;
         }
-        if let Some(monos) = &self.monos
-            && let Some(view) = monos.update(cx, |m, cx| m.open_search_session(id, window, cx))
+        if let Some(minions) = &self.minions
+            && let Some(view) = minions.update(cx, |m, cx| m.open_search_session(id, window, cx))
         {
             if let Some((row, query)) = jump {
                 view.update(cx, |v, cx| v.reveal_search(row, query, cx));
@@ -378,12 +378,12 @@ impl Shell {
         })
         .detach();
     }
-    pub(super) fn sync_mono_search(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn sync_minion_search(&mut self, cx: &mut Context<Self>) {
         let Some(search) = &self.app_search else {
             return;
         };
         let views = self
-            .monos
+            .minions
             .as_ref()
             .map(|m| m.read(cx).search_conversations())
             .unwrap_or_default();

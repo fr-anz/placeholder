@@ -8,7 +8,7 @@ const RECENT_SESSIONS: usize = 20;
 const SESSION_PAGE_MAX: usize = 100;
 
 /// The workspace poll's sessions: each project's most recent, every busy one,
-/// and every Mono's. `sessions` is newest first, as the catalog is sorted.
+/// and every Minion's. `sessions` is newest first, as the catalog is sorted.
 pub fn recent_sessions(sessions: &Value) -> Vec<Value> {
     let mut per_project: HashMap<&str, usize> = HashMap::new();
     sessions
@@ -20,7 +20,12 @@ pub fn recent_sessions(sessions: &Value) -> Vec<Value> {
                 .entry(session["projectId"].as_str().unwrap_or(""))
                 .or_default();
             *count += 1;
-            *count <= RECENT_SESSIONS || session["busy"] == true || session["monoId"].is_string()
+            // "monoId" is the wire name the phone app reads; "minionId" is
+            // accepted for the renamed field.
+            *count <= RECENT_SESSIONS
+                || session["busy"] == true
+                || session["monoId"].is_string()
+                || session["minionId"].is_string()
         })
         .cloned()
         .collect()
@@ -75,15 +80,18 @@ mod tests {
     fn the_poll_carries_recent_sessions_and_pages_serve_the_rest() {
         let sessions: Vec<Value> = (0..30)
             .map(|i| json!({"id":format!("s{i}"),"projectId":"p","title":format!("Task {i}"),"busy":i == 25}))
-            .chain([json!({"id":"m","projectId":"p","monoId":"mono"})])
+            .chain([
+                json!({"id":"m","projectId":"p","monoId":"mono"}),
+                json!({"id":"n","projectId":"p","minionId":"minion"}),
+            ])
             .collect();
         let sessions = json!(sessions);
         let recent = recent_sessions(&sessions);
-        assert_eq!(recent.len(), RECENT_SESSIONS + 2);
+        assert_eq!(recent.len(), RECENT_SESSIONS + 3);
         assert!(recent.iter().any(|s| s["id"] == "s25"));
 
         let page = session_page(&sessions, &json!({"projectId":"p","offset":28,"limit":10}));
-        assert_eq!(page["sessions"].as_array().unwrap().len(), 3);
+        assert_eq!(page["sessions"].as_array().unwrap().len(), 4);
         assert_eq!(page["hasMore"], false);
         let page = session_page(&sessions, &json!({"projectId":"p","limit":2}));
         assert_eq!(page["hasMore"], true);

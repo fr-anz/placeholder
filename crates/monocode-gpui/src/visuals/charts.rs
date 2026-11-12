@@ -14,7 +14,7 @@ use gpui::{
 };
 use monocode_core::visual::{ChartKind, Series, Slice, ThemeColor};
 
-/// Axis type: the shared mono caption.
+/// Axis type: the shared minion caption.
 fn axis() -> Label {
     Label::mono(10., content(0.45))
 }

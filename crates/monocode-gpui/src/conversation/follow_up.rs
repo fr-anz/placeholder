@@ -339,7 +339,7 @@ impl Conversation {
         if self.settings.usage_limit.is_some()
             || self.settings.worktree_removed
             || self.account_switching
-            || self.settings.mono.is_some()
+            || self.settings.minion.is_some()
             || !self.loaded
             || self.preparing_worktree
             || (self.follow_ups.state.paused && self.follow_ups.requested.is_none())
@@ -417,9 +417,9 @@ impl Conversation {
             }
             self.follow_ups.sending = Some(message.id.clone());
             let message_id = message.id.clone();
-            self.settings.mono_message_id = Some(message.id.clone());
+            self.settings.minion_message_id = Some(message.id.clone());
             self.launch_message(message, cx);
-            self.settings.mono_message_id = None;
+            self.settings.minion_message_id = None;
             if !self.busy {
                 self.fail_follow_up(&message_id, self.status.clone(), cx);
             }

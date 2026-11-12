@@ -138,7 +138,7 @@ fn run_turn_using(
     let mut provider_id = summary.provider_id.clone();
     let mut turn_start = 0;
     let mut turn_receipt: Option<(usize, monocode_core::agent::TurnInfo)> = None;
-    let mut mono_fingerprint = None;
+    let mut minion_fingerprint = None;
     let mut visual_introduction = None;
     let mut prepared_handoff = None;
     let mut handoff_accepted = false;
@@ -188,8 +188,8 @@ fn run_turn_using(
         {
             transcript.rows[start].sent_at = Some(at);
         }
-        if settings.mono.is_some()
-            && let Some(at) = settings.mono_sent_at
+        if settings.minion.is_some()
+            && let Some(at) = settings.minion_sent_at
         {
             transcript.rows[start].sent_at = Some(at);
         }
@@ -205,7 +205,7 @@ fn run_turn_using(
             summary.id,
             start,
             &transcript.rows[start..],
-            settings.mono_message_id.as_deref(),
+            settings.minion_message_id.as_deref(),
         )?;
         let mut info =
             settings
@@ -225,7 +225,7 @@ fn run_turn_using(
             .map_or(0, |at| at + 1);
         persistence::save_turn_receipt(&store, summary.id, turn, info.clone())?;
         turn_receipt = Some((turn, info));
-        initial_delivery = settings.mono_message_id.clone();
+        initial_delivery = settings.minion_message_id.clone();
         let creating_worktree = settings.new_worktree && settings.worktree_cwd.is_none();
         publish(
             &tx,
@@ -237,7 +237,7 @@ fn run_turn_using(
                 turn_ready: false,
                 follow_up_delivered: Vec::new(),
                 follow_up_errors: Vec::new(),
-                delivered: settings.mono_message_id.clone(),
+                delivered: settings.minion_message_id.clone(),
                 start,
                 rows: transcript.rows[start..].to_vec(),
                 provider_id: None,
@@ -440,34 +440,44 @@ fn run_turn_using(
                 .starts_with('/');
         let prompt = if raw_native_command {
             prompt
-        } else if let Some(mono) = &settings.mono {
-            let files = monocode_core::mono::load_files(&mono.root, &mono.mono)?;
+        } else if let Some(minion) = &settings.minion {
+            let files = monocode_core::minion::load_files(&minion.root, &minion.minion)?;
             let rotated = provider_id.is_some() && context.ratio().is_some_and(|r| r >= 0.8);
             if rotated {
                 provider_id = None;
                 locked(&store)?.reset_provider_id(summary.id)?;
             }
-            let receipt = locked(&store)?.setting(&format!("mono-context:{}", summary.id))?;
-            let rules = monocode_core::mono::files::content_hash(
-                &monocode_core::mono::instructions(&mono.mono, &mono.executable),
+            // Read the new key first; fall back to the pre-rename
+            // `mono-context:` receipt so upgrades keep their context state.
+            // Take the lock once: a second `locked` while this guard lives
+            // would deadlock on the non-reentrant mutex.
+            let receipt = {
+                let db = locked(&store)?;
+                match db.setting(&format!("minion-context:{}", summary.id))? {
+                    Some(receipt) => Some(receipt),
+                    None => db.setting(&format!("mono-context:{}", summary.id))?,
+                }
+            };
+            let rules = monocode_core::minion::files::content_hash(
+                &monocode_core::minion::instructions(&minion.minion, &minion.executable),
             );
             let held_rules = receipt
                 .as_deref()
                 .and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok())
                 .and_then(|r| r["rules"].as_str().map(str::to_owned));
-            let added = monocode_core::mono::context(
-                &mono.mono,
+            let added = monocode_core::minion::context(
+                &minion.minion,
                 &files,
-                &mono.executable,
-                monocode_core::mono::rules_in_system(
+                &minion.executable,
+                monocode_core::minion::rules_in_system(
                     kind,
                     provider_id.is_some(),
                     held_rules.as_deref(),
                     &rules,
                 ),
             );
-            let fingerprint = monocode_core::mono::files::content_hash(&added);
-            mono_fingerprint = Some((fingerprint.clone(), rules.clone()));
+            let fingerprint = monocode_core::minion::files::content_hash(&added);
+            minion_fingerprint = Some((fingerprint.clone(), rules.clone()));
             let expected =
                 serde_json::json!({"provider":provider_id,"hash":fingerprint,"rules":rules})
                     .to_string();
@@ -477,7 +487,7 @@ fn run_turn_using(
                 String::new()
             };
             let brief = if provider_id.is_none() && turn_start > 0 {
-                monocode_core::mono::rotation_brief(&transcript.rows[..turn_start])
+                monocode_core::minion::rotation_brief(&transcript.rows[..turn_start])
             } else {
                 String::new()
             };
@@ -508,7 +518,7 @@ fn run_turn_using(
                     // A provider switch: the handoff below carries the chat.
                 } else if turn_start > 0 {
                     fresh.push_str("\n\n");
-                    fresh.push_str(&monocode_core::mono::rotation_brief(
+                    fresh.push_str(&monocode_core::minion::rotation_brief(
                         &transcript.rows[..turn_start],
                     ));
                 }
@@ -550,7 +560,7 @@ fn run_turn_using(
             prompt
         };
         let cwd = settings.worktree_cwd.as_deref().unwrap_or(&summary.cwd);
-        if settings.mono.is_none()
+        if settings.minion.is_none()
             && cwd != "~"
             && let Some(store) = monocode_core::checkpoint::store()
         {
@@ -953,10 +963,10 @@ fn run_turn_using(
             })
         });
         if result.is_ok()
-            && let Some((fingerprint, rules)) = &mono_fingerprint
+            && let Some((fingerprint, rules)) = &minion_fingerprint
         {
             locked(&store)?.save_setting(
-                &format!("mono-context:{}", summary.id),
+                &format!("minion-context:{}", summary.id),
                 &serde_json::json!({"provider":provider_id,"hash":fingerprint,"rules":rules})
                     .to_string(),
             )?;

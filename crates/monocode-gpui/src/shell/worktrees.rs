@@ -157,8 +157,8 @@ impl Shell {
         self.navigation_revision += 1;
         self.leave_app_views(cx);
         self.close_preview(cx);
-        if let Some(monos) = self.monos.clone() {
-            monos.update(cx, |m, cx| m.close(cx));
+        if let Some(minions) = self.minions.clone() {
+            minions.update(cx, |m, cx| m.close(cx));
         }
         if self.restore_scope_tab(window, cx) {
             return;

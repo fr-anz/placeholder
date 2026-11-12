@@ -2039,13 +2039,13 @@ mod tests {
     #[gpui::test]
     fn sidebar_header_controls_share_the_trailing_alignment(cx: &mut TestAppContext) {
         let (window, _, _) = setup(cx);
-        // The header's plus appears once this project has a Mono. The empty
+        // The header's plus appears once this project has a Minion. The empty
         // state uses a full-width creation row instead.
         window
             .update(cx, |shell, _, cx| {
-                if let Some(monos) = &shell.monos {
-                    monos.update(cx, |monos, cx| {
-                        monos.roster.monos.push(monocode_core::mono::Mono {
+                if let Some(minions) = &shell.minions {
+                    minions.update(cx, |minions, cx| {
+                        minions.roster.minions.push(monocode_core::minion::Minion {
                             projects: vec![shell.workspace.project.clone()],
                             ..Default::default()
                         });
@@ -2058,9 +2058,9 @@ mod tests {
         cx.refresh().unwrap();
         let visual = &mut VisualTestContext::from_window(window.into(), cx);
         let options = visual.debug_bounds("sidebar-options").unwrap();
-        let mono = visual.debug_bounds("sidebar-mono-button").unwrap();
+        let minion = visual.debug_bounds("sidebar-minion-button").unwrap();
         let filter = visual.debug_bounds("sidebar-filter-button").unwrap();
-        assert!((options.center().x - mono.center().x).abs() <= px(1.));
+        assert!((options.center().x - minion.center().x).abs() <= px(1.));
         assert!((options.center().x - filter.center().x).abs() <= px(1.));
         let project = visual.debug_bounds("sidebar-project-button").unwrap();
         let search = visual.debug_bounds("sidebar-search-button").unwrap();

@@ -5,7 +5,7 @@ pub(crate) struct StopOrchestration;
 
 impl Conversation {
     pub(crate) fn request_folder(&mut self, cx: &mut Context<Self>) {
-        if self.settings.mono.is_none() {
+        if self.settings.minion.is_none() {
             self.completion
                 .update(cx, |completion, cx| completion.dismiss(cx));
             cx.emit(ChooseFolder(self.composer_anchor.clone()));
@@ -224,7 +224,7 @@ impl Conversation {
             for image in images {
                 let path = root.join(format!(
                     "pasted-{}.{}",
-                    monocode_core::mono::new_id(),
+                    monocode_core::minion::new_id(),
                     image.format().extension()
                 ));
                 std::fs::write(&path, image.bytes()).map_err(|e| e.to_string())?;
@@ -487,7 +487,7 @@ impl Conversation {
             || self.loading
             || (!self.history_actions.is_empty() && self.history_ready())
             || self.editing_last_turn.pending()
-            || self.mono_external_pending()
+            || self.minion_external_pending()
     }
     /// An evicted history can be restored for a managed run; a user's draft
     /// or an already accepted message must keep ownership of this composer.
@@ -498,7 +498,7 @@ impl Conversation {
             && !self.attaching
             && !self.account_switching
             && !self.editing_last_turn.pending()
-            && !self.mono_external_pending()
+            && !self.minion_external_pending()
             && self.input.read(cx).content.is_empty()
             && self.attachments.is_empty()
             && self.follow_ups.state.messages.is_empty()

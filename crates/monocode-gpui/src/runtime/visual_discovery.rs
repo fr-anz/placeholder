@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn existing_fallback_contexts_get_discovery_and_only_success_suppresses_retries() {
         let (_fixture, store) = fixture();
-        let executable = Path::new("/Applications/Mono Code.app/Contents/MacOS/monocode-gpui");
+        let executable = Path::new("/Applications/Minion Code.app/Contents/MacOS/monocode-gpui");
         for kind in [Kind::Pi, Kind::Omp, Kind::OpenCode, Kind::Grok, Kind::Fx] {
             let discovery =
                 Discovery::prepare(&store, 7, kind, "default", Some("existing"), executable)

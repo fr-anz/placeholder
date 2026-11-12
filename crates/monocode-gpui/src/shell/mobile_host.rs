@@ -56,14 +56,14 @@ pub(super) struct Mobile {
     /// Sessions whose current turn a phone started: their approvals,
     /// questions and finish are sent to it.
     started: HashSet<i64>,
-    /// The last message of each Mono conversation not open here, by its
+    /// The last message of each Minion conversation not open here, by its
     /// session, with the update time it was read at: read again only once
     /// the conversation has changed.
-    mono_previews: HashMap<i64, MonoPreview>,
+    minion_previews: HashMap<i64, MinionPreview>,
 }
 
 #[derive(Clone)]
-struct MonoPreview {
+struct MinionPreview {
     updated_at: u64,
     text: Value,
 }
@@ -87,7 +87,7 @@ struct GitJob {
 #[derive(Clone, PartialEq)]
 enum Target {
     Session(i64),
-    Mono(String),
+    Minion(String),
 }
 
 /// A conversation read from disk, reused until the session opens on desktop.
@@ -97,19 +97,19 @@ struct Saved {
     rows: Vec<Row>,
     harness: String,
     cwd: String,
-    /// The store cursor for turns above `rows`: a long Mono loads only its
+    /// The store cursor for turns above `rows`: a long Minion loads only its
     /// newest page.
     history: Option<i64>,
-    /// The Mono's name, so its saved turns are drawn as Mono turns, as they
+    /// The Minion's name, so its saved turns are drawn as Minion turns, as they
     /// are once its chat opens, and keep their heights when it does.
-    mono: Option<String>,
-    /// The cards of the sessions the Mono started, as they stood on reading.
+    minion: Option<String>,
+    /// The cards of the sessions the Minion started, as they stood on reading.
     launches: HashMap<i64, Value>,
 }
 
 /// How an older page's turns are drawn, as the conversation's own are.
 struct PageLook {
-    mono: Option<String>,
+    minion: Option<String>,
     launches: HashMap<i64, Value>,
     cwd: String,
     harness: String,
@@ -146,9 +146,9 @@ struct Snapshot<'a> {
     model: Option<String>,
     busy: bool,
     waiting: Option<&'static str>,
-    mono: Option<String>,
+    minion: Option<String>,
     pending: Vec<turns::Pending>,
-    /// A Mono's launched sessions, as the phone's cards show them.
+    /// A Minion's launched sessions, as the phone's cards show them.
     launches: &'a HashMap<i64, Value>,
     /// The question the agent waits on, as the phone's card shows it; null
     /// for none, as always for a saved conversation.
@@ -169,7 +169,7 @@ impl Snapshot<'_> {
             }),
             busy: self.busy,
             waiting: self.waiting,
-            mono: self.mono.as_deref(),
+            minion: self.minion.as_deref(),
             pending: &self.pending,
             launches: self.launches,
         }
@@ -347,22 +347,22 @@ impl Shell {
 
     // MARK: catalog
 
-    /// Projects on the rail and those Monos work in.
+    /// Projects on the rail and those Minions work in.
     fn mobile_projects(&self, cx: &App) -> Vec<String> {
         let mut paths: Vec<String> = Vec::new();
-        let monos = self
-            .monos
+        let minions = self
+            .minions
             .as_ref()
             .map(|m| {
                 m.read(cx)
                     .roster
-                    .monos
+                    .minions
                     .iter()
-                    .flat_map(|mono| mono.projects.clone())
+                    .flat_map(|minion| minion.projects.clone())
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        for path in self.workspace.projects.iter().cloned().chain(monos) {
+        for path in self.workspace.projects.iter().cloned().chain(minions) {
             if !path.is_empty()
                 && path != "~"
                 && !paths.iter().any(|p| {
@@ -402,7 +402,7 @@ impl Shell {
                     || !summary.has_messages
                     || self.orchestration_worker(id)
                     || self
-                        .monos
+                        .minions
                         .as_ref()
                         .is_some_and(|m| m.read(cx).hidden_session(id))
                 {
@@ -477,22 +477,22 @@ impl Shell {
             })
             .collect();
         let entries = self.mobile_catalog_sessions(&paths, cx);
-        let monos: Vec<(monocode_core::mono::Mono, Option<Value>)> = self
-            .monos
+        let minions: Vec<(monocode_core::minion::Minion, Option<Value>)> = self
+            .minions
             .as_ref()
             .map(|m| {
                 let manager = m.read(cx);
                 manager
                     .roster
-                    .monos
+                    .minions
                     .iter()
-                    .map(|mono| {
-                        let live = manager.open_chat(&mono.id).map(|chat| {
+                    .map(|minion| {
+                        let live = manager.open_chat(&minion.id).map(|chat| {
                             let chat = chat.read(cx);
                             let rows = chat.transcript.read(cx).source_rows();
                             let last = turns::messages(rows).pop();
                             json!({
-                                "status": chat.mono_status(),
+                                "status": chat.minion_status(),
                                 "busy": chat.busy,
                                 "harness": chat.summary.provider,
                                 "model": mobile_catalog::model_id(Kind::from_id(&chat.summary.provider), chat.mobile_model()),
@@ -500,34 +500,34 @@ impl Shell {
                                 "lastActiveAt": chat.summary.updated_at,
                             })
                         });
-                        (mono.clone(), live)
+                        (minion.clone(), live)
                     })
                     .collect()
             })
             .unwrap_or_default();
-        // A Mono's conversation not open here still shows its last message
+        // A Minion's conversation not open here still shows its last message
         // on the phone, read from its saved history.
-        let saved_monos: Vec<(i64, Option<u64>)> = monos
+        let saved_minions: Vec<(i64, Option<u64>)> = minions
             .iter()
             .filter(|(_, live)| live.is_none())
-            .filter_map(|(mono, _)| mono.session_id)
+            .filter_map(|(minion, _)| minion.session_id)
             .map(|id| (id, self.session_summaries.get(&id).map(|s| s.updated_at)))
             .collect();
-        let mut previews = self.mobile.mono_previews.clone();
+        let mut previews = self.mobile.minion_previews.clone();
         let store = self.store.clone();
         let mut ids = self.mobile.ids.clone();
         self.mobile.publishing = true;
         let work = cx.background_executor().spawn(async move {
             let saved = {
                 let store = locked(&store)?;
-                for id in entries.iter().map(|entry| entry.id).chain(monos.iter().filter_map(|(mono, _)| mono.session_id)) {
+                for id in entries.iter().map(|entry| entry.id).chain(minions.iter().filter_map(|(minion, _)| minion.session_id)) {
                     if let std::collections::hash_map::Entry::Vacant(entry) = ids.entry(id)
                         && let Ok(value) = store.persisted_session_id(id)
                     {
                         entry.insert(value);
                     }
                 }
-                for (id, updated_at) in &saved_monos {
+                for (id, updated_at) in &saved_minions {
                     let fresh = previews
                         .get(id)
                         .is_some_and(|p| updated_at.is_some_and(|at| at == p.updated_at));
@@ -541,9 +541,9 @@ impl Shell {
                         .pop()
                         .map(|m| m["text"].clone())
                         .unwrap_or(json!(""));
-                    previews.insert(*id, MonoPreview { updated_at: updated_at.unwrap_or(0), text });
+                    previews.insert(*id, MinionPreview { updated_at: updated_at.unwrap_or(0), text });
                 }
-                previews.retain(|id, _| saved_monos.iter().any(|(saved, _)| saved == id));
+                previews.retain(|id, _| saved_minions.iter().any(|(saved, _)| saved == id));
                 store.mobile_session_metadata()?
             };
             let mut branches = HashMap::new();
@@ -564,15 +564,15 @@ impl Shell {
                 sessions.push(mobile_catalog::session(&entry.summary, id, &entry.project, &metadata, entry.live.as_ref(), &branch));
             }
             sessions.sort_by_key(|s| std::cmp::Reverse(s["updatedAt"].as_u64()));
-            let monos: Vec<Value> = monos
+            let minions: Vec<Value> = minions
                 .into_iter()
-                .map(|(mono, live)| {
+                .map(|(minion, live)| {
                     let mut value = json!({
-                        "id": mono.id,
-                        "name": mono.label(),
-                        "mascot": mono.mascot,
-                        "color": hex(mono.color),
-                        "projectIds": mono.projects.iter().map(|p| project_id(p)).collect::<Vec<_>>(),
+                        "id": minion.id,
+                        "name": minion.label(),
+                        "mascot": minion.mascot,
+                        "color": hex(minion.color),
+                        "projectIds": minion.projects.iter().map(|p| project_id(p)).collect::<Vec<_>>(),
                         "unread": 0,
                         "status": "idle",
                         "busy": false,
@@ -580,13 +580,13 @@ impl Shell {
                         "lastMessage": "",
                         "lastActiveAt": 0,
                     });
-                    if let Some(session) = mono.session_id.and_then(|id| ids.get(&id)) {
+                    if let Some(session) = minion.session_id.and_then(|id| ids.get(&id)) {
                         value["sessionId"] = json!(session);
                     }
-                    if let Some(subsessions) = &mono.subsessions {
+                    if let Some(subsessions) = &minion.subsessions {
                         value["subsessions"] = json!(subsessions);
                     }
-                    if let Some(preview) = mono.session_id.and_then(|id| previews.get(&id)) {
+                    if let Some(preview) = minion.session_id.and_then(|id| previews.get(&id)) {
                         value["lastMessage"] = preview.text.clone();
                         value["lastActiveAt"] = json!(preview.updated_at);
                     }
@@ -601,12 +601,12 @@ impl Shell {
                 })
                 .collect();
             Ok::<_, String>((
-                // `monoTools`: this desktop answers the phone's Mono profile,
+                // `monoTools`: this desktop answers the phone's Minion profile,
                 // editing, reset, delete and create; the older app doesn't,
                 // and its phones hide them. `push`: it notifies phones through
                 // Expo, so they no longer post their own alerts. `monoFiles`:
-                // it reads and saves a Mono's soul and memory for the phone.
-                json!({"projects": projects, "monos": monos, "sessions": sessions, "monoTools": true, "push": true, "monoFiles": true}),
+                // it reads and saves a Minion's soul and memory for the phone.
+                json!({"projects": projects, "monos": minions, "sessions": sessions, "monoTools": true, "push": true, "monoFiles": true}),
                 ids,
                 previews,
             ))
@@ -617,7 +617,7 @@ impl Shell {
                 this.mobile.publishing = false;
                 if let Ok((catalog, ids, previews)) = result {
                     this.mobile.ids = ids;
-                    this.mobile.mono_previews = previews;
+                    this.mobile.minion_previews = previews;
                     let _ = host.publish(catalog);
                 }
             });
@@ -628,13 +628,15 @@ impl Shell {
     // MARK: requests
 
     fn mobile_target(&self, id: &str, cx: &App) -> Result<Target, String> {
-        if let Some(mono) = id.strip_prefix("mono:") {
+        // Legacy `mono:` target prefix stays: the phone app is a separate
+        // program that still addresses Minions with it.
+        if let Some(minion) = id.strip_prefix("mono:") {
             return self
-                .monos
+                .minions
                 .as_ref()
-                .is_some_and(|m| m.read(cx).roster.get(mono).is_some())
-                .then(|| Target::Mono(mono.to_owned()))
-                .ok_or_else(|| "Mono is no longer available".into());
+                .is_some_and(|m| m.read(cx).roster.get(minion).is_some())
+                .then(|| Target::Minion(minion.to_owned()))
+                .ok_or_else(|| "Minion is no longer available".into());
         }
         let session = self
             .mobile
@@ -648,22 +650,22 @@ impl Shell {
         Ok(Target::Session(session))
     }
 
-    /// The sessions a Mono started, as the cards in its chat show them on the
+    /// The sessions a Minion started, as the cards in its chat show them on the
     /// phone: the phone's IDs for each and the project it runs in, its title
     /// and how it stands. None for a session's own conversation.
     fn mobile_launches(&self, target: &Target, cx: &App) -> HashMap<i64, Value> {
-        let Target::Mono(mono) = target else {
+        let Target::Minion(minion) = target else {
             return HashMap::new();
         };
-        let Some(mono) = self
-            .monos
+        let Some(minion) = self
+            .minions
             .as_ref()
-            .and_then(|m| m.read(cx).roster.get(mono).cloned())
+            .and_then(|m| m.read(cx).roster.get(minion).cloned())
         else {
             return HashMap::new();
         };
         let projects = self.mobile_projects(cx);
-        crate::monos::cards::launch_views(&mono, self, cx)
+        crate::minions::cards::launch_views(&minion, self, cx)
             .into_iter()
             .map(|(id, view)| {
                 // A worktree's session belongs to the project it was made from.
@@ -674,7 +676,7 @@ impl Shell {
                         monocode_core::files::path_key(path) == monocode_core::files::path_key(cwd)
                     })
                     .or_else(|| {
-                        mono.projects.iter().find(|path| {
+                        minion.projects.iter().find(|path| {
                             projects.contains(path) && cwd.starts_with(path.as_str())
                         })
                     });
@@ -719,20 +721,27 @@ impl Shell {
 
     fn handle_mobile_request(
         &mut self,
-        request: Request,
+        mut request: Request,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The phone app sends `mono.*`; core also forwards the newer
+        // `minion.*` spelling. Handle both under the wire name.
+        if let Some(rest) = request.method.strip_prefix("minion.") {
+            request.method = format!("mono.{rest}");
+        }
         let method = request.method.clone();
         match method.as_str() {
             "conversation.read" | "conversation.older" => self.mobile_read(request, cx),
             "models.list" => self.mobile_models(request, cx),
             "accounts.usage" => self.mobile_usage(request, cx),
+            // Legacy `mono.*` method names stay: the phone app is a separate
+            // program that still sends them.
             "mono.document" => self.mobile_document(request, cx),
             "mono.profile" | "mono.update" | "mono.reset" | "mono.delete" | "mono.create" => {
-                self.mobile_mono(request, cx)
+                self.mobile_minion(request, cx)
             }
-            "mono.file" | "mono.saveFile" => self.mobile_mono_file(request, cx),
+            "mono.file" | "mono.saveFile" => self.mobile_minion_file(request, cx),
             "project.fileHighlight" => {
                 let job = string(&request.params, "job").unwrap_or_default();
                 let from = request.params["from"].as_u64().unwrap_or(0) as usize;
@@ -872,7 +881,7 @@ impl Shell {
             let ids = turns::turn_ids(&source);
             if older {
                 let (start, end, more) = watch::before(&ids, &before, limit)?;
-                // At the top of the loaded rows; a long Mono keeps the rest in
+                // At the top of the loaded rows; a long Minion keeps the rest in
                 // the store.
                 if start == end
                     && let Some(cursor) = snapshot.history
@@ -933,10 +942,10 @@ impl Shell {
     ) {
         let (session, name) = match target {
             Target::Session(id) => (Some(*id), None),
-            Target::Mono(mono) => {
-                let found = self.monos.as_ref().and_then(|m| {
-                    let mono = m.read(cx).roster.get(mono)?;
-                    Some((mono.session_id, mono.label()))
+            Target::Minion(minion) => {
+                let found = self.minions.as_ref().and_then(|m| {
+                    let minion = m.read(cx).roster.get(minion)?;
+                    Some((minion.session_id, minion.label()))
                 });
                 (found.as_ref().and_then(|f| f.0), found.map(|f| f.1))
             }
@@ -947,7 +956,7 @@ impl Shell {
         // Drawn as the loaded turns are, from the open chat or the summary.
         let look = self
             .with_live_snapshot(target, cx, |s| PageLook {
-                mono: s.mono.clone(),
+                minion: s.minion.clone(),
                 launches: s.launches.clone(),
                 cwd: s.cwd.to_owned(),
                 harness: s.harness.to_owned(),
@@ -956,7 +965,7 @@ impl Shell {
             .unwrap_or_else(|| {
                 let summary = self.session_summaries.get(&session);
                 PageLook {
-                    mono: name,
+                    minion: name,
                     launches: self.mobile_launches(target, cx),
                     cwd: summary.map(|s| s.cwd.clone()).unwrap_or_default(),
                     harness: summary.map(|s| s.provider.clone()).unwrap_or_default(),
@@ -979,10 +988,10 @@ impl Shell {
         cx: &App,
         f: impl FnOnce(&Snapshot) -> T,
     ) -> Option<T> {
-        let (view, mono) = match target {
+        let (view, minion) = match target {
             Target::Session(id) => (self.sessions.get(id)?.clone(), None),
-            Target::Mono(id) => {
-                let manager = self.monos.as_ref()?.read(cx);
+            Target::Minion(id) => {
+                let manager = self.minions.as_ref()?.read(cx);
                 let name = manager.roster.get(id).map(|m| m.label());
                 (manager.open_chat(id)?, name)
             }
@@ -1007,7 +1016,7 @@ impl Shell {
             model: chat.mobile_model().map(str::to_owned),
             busy: chat.busy,
             waiting,
-            mono,
+            minion,
             pending: chat.mobile_pending(cx),
             launches: &launches,
             question: chat.mobile_question(cx),
@@ -1021,11 +1030,11 @@ impl Shell {
         target: &Target,
         cx: &mut Context<Self>,
     ) -> Task<Result<Arc<Saved>, String>> {
-        let (id, mono) = match target {
+        let (id, minion) = match target {
             Target::Session(id) => (Some(*id), None),
-            Target::Mono(mono) => {
-                let manager = self.monos.as_ref().map(|m| m.read(cx));
-                let found = manager.and_then(|m| m.roster.get(mono));
+            Target::Minion(minion) => {
+                let manager = self.minions.as_ref().map(|m| m.read(cx));
+                let found = manager.and_then(|m| m.roster.get(minion));
                 (found.and_then(|m| m.session_id), found.map(|m| m.label()))
             }
         };
@@ -1034,7 +1043,7 @@ impl Shell {
         let store = self.store.clone();
         cx.background_executor().spawn(async move {
             let Some(id) = id else {
-                // A Mono that has not talked yet.
+                // A Minion that has not talked yet.
                 return Ok(Arc::new(Saved {
                     id: 0,
                     settings: Settings::default(),
@@ -1042,7 +1051,7 @@ impl Shell {
                     harness: String::new(),
                     cwd: String::new(),
                     history: None,
-                    mono,
+                    minion,
                     launches,
                 }));
             };
@@ -1066,7 +1075,7 @@ impl Shell {
                 harness,
                 cwd,
                 history,
-                mono,
+                minion,
                 launches,
             }))
         })
@@ -1121,7 +1130,7 @@ impl Shell {
         };
         let view = match &watch.target {
             Target::Session(session) => self.sessions.get(session).cloned(),
-            Target::Mono(mono) => self.monos.as_ref().and_then(|m| m.read(cx).open_chat(mono)),
+            Target::Minion(minion) => self.minions.as_ref().and_then(|m| m.read(cx).open_chat(minion)),
         };
         let Some(view) = view else {
             return;
@@ -1239,10 +1248,10 @@ impl Shell {
                         if limited {
                             let view = match target {
                                 Target::Session(session) => this.ensure_session(session, cx),
-                                Target::Mono(mono) => this
-                                    .monos
+                                Target::Minion(minion) => this
+                                    .minions
                                     .clone()
-                                    .and_then(|m| m.update(cx, |m, cx| m.mobile_chat(&mono, cx))),
+                                    .and_then(|m| m.update(cx, |m, cx| m.mobile_chat(&minion, cx))),
                             };
                             if let Some(view) = view {
                                 view.update(cx, |v, cx| v.load(cx));
@@ -1334,8 +1343,8 @@ impl Shell {
                 }
                 Ok(reply)
             }
-            ("session.cancel", Target::Mono(mono)) => {
-                if let Some(chat) = self.monos.as_ref().and_then(|m| m.read(cx).open_chat(mono)) {
+            ("session.cancel", Target::Minion(minion)) => {
+                if let Some(chat) = self.minions.as_ref().and_then(|m| m.read(cx).open_chat(minion)) {
                     chat.update(cx, |v, cx| v.stop_if_busy(cx));
                 }
                 Ok(reply)
@@ -1352,10 +1361,10 @@ impl Shell {
                 };
                 let view = match target {
                     Target::Session(id) => self.ensure_session(*id, cx),
-                    Target::Mono(mono) => self
-                        .monos
+                    Target::Minion(minion) => self
+                        .minions
                         .clone()
-                        .and_then(|m| m.update(cx, |m, cx| m.mobile_chat(mono, cx))),
+                        .and_then(|m| m.update(cx, |m, cx| m.mobile_chat(minion, cx))),
                 }
                 .ok_or("This conversation is still opening on desktop; try again")?;
                 view.update(cx, |v, cx| {
@@ -1366,10 +1375,10 @@ impl Shell {
             ("session.configure", target) => {
                 let view = match target {
                     Target::Session(id) => self.ensure_session(*id, cx),
-                    Target::Mono(mono) => self
-                        .monos
+                    Target::Minion(minion) => self
+                        .minions
                         .clone()
-                        .and_then(|m| m.update(cx, |m, cx| m.mobile_chat(mono, cx))),
+                        .and_then(|m| m.update(cx, |m, cx| m.mobile_chat(minion, cx))),
                 }
                 .ok_or("This conversation is still opening on desktop; try again")?;
                 let model = match (
@@ -1428,8 +1437,8 @@ impl Shell {
             ("session.answerQuestion" | "session.keepQuestionOpen", target) => {
                 let view = match target {
                     Target::Session(id) => self.sessions.get(id).cloned(),
-                    Target::Mono(mono) => {
-                        self.monos.as_ref().and_then(|m| m.read(cx).open_chat(mono))
+                    Target::Minion(minion) => {
+                        self.minions.as_ref().and_then(|m| m.read(cx).open_chat(minion))
                     }
                 }
                 .ok_or("This question was already answered")?;
@@ -1444,10 +1453,10 @@ impl Shell {
                 })?;
                 Ok(reply)
             }
-            ("session.rename", Target::Mono(_)) => {
-                Err("A Mono's conversation can't be renamed".into())
+            ("session.rename", Target::Minion(_)) => {
+                Err("A Minion's conversation can't be renamed".into())
             }
-            ("session.archive" | "session.delete", Target::Mono(_)) => {
+            ("session.archive" | "session.delete", Target::Minion(_)) => {
                 Err("This session can't be changed from the phone".into())
             }
             _ => Err("Unsupported mobile command".into()),
@@ -1483,13 +1492,13 @@ impl Shell {
                         this.mobile.started.insert(*id);
                         Ok(())
                     }
-                    Target::Mono(mono) => this
-                        .monos
+                    Target::Minion(minion) => this
+                        .minions
                         .clone()
-                        .ok_or("Mono is no longer available")?
+                        .ok_or("Minion is no longer available")?
                         .update(cx, |m, cx| {
                             m.mobile_send(
-                                mono,
+                                minion,
                                 text,
                                 attachments
                                     .iter()
@@ -1613,7 +1622,7 @@ impl Shell {
 
     // MARK: notifications
 
-    /// Sends a session's notice to paired phones: always a Mono's, and
+    /// Sends a session's notice to paired phones: always a Minion's, and
     /// another's while a phone started its current turn, which its finish
     /// ends. Not while the desktop shows that session in front of the user.
     pub(super) fn notify_mobile(
@@ -1629,20 +1638,20 @@ impl Shell {
         } else {
             self.mobile.started.contains(&id)
         };
-        // A Mono's own chat, or one of its habit runs.
-        let mono = self.monos.as_ref().and_then(|monos| {
-            let mono = monos.read(cx).notification_mono(id)?;
-            Some((mono.id.clone(), mono.label(), mono.session_id != Some(id)))
+        // A Minion's own chat, or one of its habit runs.
+        let minion = self.minions.as_ref().and_then(|minions| {
+            let minion = minions.read(cx).notification_minion(id)?;
+            Some((minion.id.clone(), minion.label(), minion.session_id != Some(id)))
         });
         if self.mobile.host.is_none()
-            || (mono.is_none() && !from_phone)
+            || (minion.is_none() && !from_phone)
             || (self.window_active && self.notice_session_visible(id, cx))
         {
             return;
         }
         let body = delivery::clip_body(body);
-        let notice = match mono {
-            Some((mono, name, habit)) => notify::Notice {
+        let notice = match minion {
+            Some((minion, name, habit)) => notify::Notice {
                 title: name,
                 subtitle: None,
                 body: if body.is_empty() {
@@ -1651,14 +1660,14 @@ impl Shell {
                     body
                 },
                 // A habit run's question is in its own session, not the
-                // Mono's chat: the phone opens it as it does a Mono's
+                // Minion's chat: the phone opens it as it does a Minion's
                 // sessions, in any project.
                 data: if habit && self.session_summaries.contains_key(&id) {
                     let mut data = self.mobile_notice_session(summary, cx);
-                    data["monoId"] = json!(mono);
+                    data["monoId"] = json!(minion);
                     data
                 } else {
-                    json!({"monoId": mono})
+                    json!({"monoId": minion})
                 },
             },
             None => {
@@ -1679,12 +1688,12 @@ impl Shell {
                 }
             }
         };
-        // A Mono's own messages are their own category; its questions and
+        // A Minion's own messages are their own category; its questions and
         // approvals are like any agent's.
         let category = if self
-            .monos
+            .minions
             .as_ref()
-            .is_some_and(|monos| monos.read(cx).notification_mono(id).is_some())
+            .is_some_and(|minions| minions.read(cx).notification_minion(id).is_some())
             && category != "agentInput"
         {
             "monoMessages"
@@ -1720,7 +1729,7 @@ impl Shell {
         self.mobile.started.remove(&id);
     }
 
-    /// A Mono's report, posted to its chat on its own.
+    /// A Minion's report, posted to its chat on its own.
     pub(super) fn notify_mobile_post(&mut self, session: i64, body: &str, cx: &mut Context<Self>) {
         if let Some(view) = self.notification_chat(session, cx) {
             let summary = view.read(cx).summary.clone();
@@ -1831,7 +1840,7 @@ impl Shell {
                         }
                     })
                     .collect();
-                let path = root.join(format!("mobile-{}-{safe}", monocode_core::mono::new_id()));
+                let path = root.join(format!("mobile-{}-{safe}", monocode_core::minion::new_id()));
                 std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
                 paths.push(path);
             }
@@ -1851,8 +1860,8 @@ impl Shell {
             Some(conversation) => self.mobile_target(&conversation, cx).and_then(|target| {
                 let view = match &target {
                     Target::Session(id) => self.sessions.get(id).cloned(),
-                    Target::Mono(mono) => {
-                        self.monos.as_ref().and_then(|m| m.read(cx).open_chat(mono))
+                    Target::Minion(minion) => {
+                        self.minions.as_ref().and_then(|m| m.read(cx).open_chat(minion))
                     }
                 };
                 match view {
@@ -1885,11 +1894,11 @@ impl Shell {
                             ))
                         }
                         // Not open here: what its saved conversation runs with.
-                        Target::Mono(mono) => {
+                        Target::Minion(minion) => {
                             let id = self
-                                .monos
+                                .minions
                                 .as_ref()
-                                .and_then(|m| m.read(cx).roster.get(&mono)?.session_id)
+                                .and_then(|m| m.read(cx).roster.get(&minion)?.session_id)
                                 .ok_or(
                                     "This conversation is still opening on desktop; try again",
                                 )?;
@@ -2018,14 +2027,14 @@ impl Shell {
 
     /// The desktop footer's usage windows for a provider's accounts, from the
     /// same cache; only an explicit refresh probes again.
-    /// A document a Mono wrote, for the phone's reader: only one a Mono's
+    /// A document a Minion wrote, for the phone's reader: only one a Minion's
     /// chat lists, read from the store when the roster has no body for it.
     fn mobile_document(&mut self, request: Request, cx: &mut Context<Self>) {
         let id = string(&request.params, "documentId").unwrap_or_default();
-        let listed = self.monos.as_ref().and_then(|monos| {
-            monos.read(cx).roster.monos.iter().find_map(|mono| {
-                let document = mono.documents.iter().find(|d| d.id == id);
-                (document.is_some() || mono.desktop_document_ids.contains(&id))
+        let listed = self.minions.as_ref().and_then(|minions| {
+            minions.read(cx).roster.minions.iter().find_map(|minion| {
+                let document = minion.documents.iter().find(|d| d.id == id);
+                (document.is_some() || minion.desktop_document_ids.contains(&id))
                     .then(|| document.cloned())
             })
         });
@@ -2034,7 +2043,7 @@ impl Shell {
         };
         // A visual runs here and goes as its rendered tree, which the phone
         // draws with the same dither; its source stays on the desktop.
-        let reply = |document: monocode_core::mono::Document| {
+        let reply = |document: monocode_core::minion::Document| {
             let mut value =
                 json!({"title": document.title, "kind": document.kind, "body": document.body});
             if document.kind == "visual" {
@@ -2051,7 +2060,7 @@ impl Shell {
         let store = self.store.clone();
         let work = cx
             .background_executor()
-            .spawn(async move { locked(&store)?.mono_document(&id) });
+            .spawn(async move { locked(&store)?.minion_document(&id) });
         cx.spawn(async move |_, _| {
             request.reply(work.await.and_then(|document| {
                 document
@@ -2062,25 +2071,25 @@ impl Shell {
         .detach();
     }
 
-    /// A Mono's details for the phone's profile, or a change to its look.
-    fn mobile_mono(&mut self, request: Request, cx: &mut Context<Self>) {
+    /// A Minion's details for the phone's profile, or a change to its look.
+    fn mobile_minion(&mut self, request: Request, cx: &mut Context<Self>) {
         let id = string(&request.params, "monoId").unwrap_or_default();
-        let Some(monos) = self.monos.clone() else {
-            return request.reply(Err("Mono is no longer available".into()));
+        let Some(minions) = self.minions.clone() else {
+            return request.reply(Err("Minion is no longer available".into()));
         };
         let result = if request.method == "mono.create" {
-            let result = monos.update(cx, |monos, cx| monos.mobile_create(cx));
+            let result = minions.update(cx, |minions, cx| minions.mobile_create(cx));
             if result.is_ok() {
                 self.publish_mobile_catalog(cx);
             }
             result
         } else if matches!(request.method.as_str(), "mono.reset" | "mono.delete") {
             let reset = request.method == "mono.reset";
-            let result = monos.update(cx, |monos, cx| {
+            let result = minions.update(cx, |minions, cx| {
                 if reset {
-                    monos.mobile_reset(&id, cx)
+                    minions.mobile_reset(&id, cx)
                 } else {
-                    monos.mobile_delete(&id, cx)
+                    minions.mobile_delete(&id, cx)
                 }
             });
             if result.is_ok() {
@@ -2099,12 +2108,12 @@ impl Shell {
                 }
             }
             if let Some(remove) = string(&request.params, "removeProject") {
-                let paths: Vec<String> = monos
+                let paths: Vec<String> = minions
                     .read(cx)
                     .roster
                     .get(&id)
-                    .map(|mono| {
-                        mono.projects
+                    .map(|minion| {
+                        minion.projects
                             .iter()
                             .filter(|p| project_id(p) == remove)
                             .cloned()
@@ -2113,26 +2122,26 @@ impl Shell {
                     .unwrap_or_default();
                 params["removePaths"] = json!(paths);
             }
-            let result = monos.update(cx, |monos, cx| monos.mobile_update(&id, &params, cx));
+            let result = minions.update(cx, |minions, cx| minions.mobile_update(&id, &params, cx));
             // The phone's drawer and header show the new look at once.
             if result.is_ok() {
                 self.publish_mobile_catalog(cx);
             }
             result
         } else {
-            let views = self.mono_session_views(cx);
-            monos.update(cx, |monos, cx| monos.mobile_profile(&id, &views, cx))
+            let views = self.minion_session_views(cx);
+            minions.update(cx, |minions, cx| minions.mobile_profile(&id, &views, cx))
         };
         request.reply(result);
     }
 
-    /// A Mono's soul or memory for the phone to read, or its edit to save.
-    fn mobile_mono_file(&mut self, request: Request, cx: &mut Context<Self>) {
+    /// A Minion's soul or memory for the phone to read, or its edit to save.
+    fn mobile_minion_file(&mut self, request: Request, cx: &mut Context<Self>) {
         let id = string(&request.params, "monoId").unwrap_or_default();
-        let Some(monos) = self.monos.clone() else {
-            return request.reply(Err("Mono is no longer available".into()));
+        let Some(minions) = self.minions.clone() else {
+            return request.reply(Err("Minion is no longer available".into()));
         };
-        let work = monos.update(cx, |monos, cx| monos.mobile_file(&id, &request.params, cx));
+        let work = minions.update(cx, |minions, cx| minions.mobile_file(&id, &request.params, cx));
         cx.spawn(async move |_, _| request.reply(work.await))
             .detach();
     }
@@ -2287,7 +2296,7 @@ fn older_page(
                 model: look.model.clone(),
                 busy: false,
                 waiting: None,
-                mono: look.mono.clone(),
+                minion: look.minion.clone(),
                 pending: Vec::new(),
                 launches: &look.launches,
                 question: Value::Null,
@@ -2344,7 +2353,7 @@ fn saved_snapshot(saved: &Saved) -> Snapshot<'_> {
         model: saved.settings.model.clone(),
         busy: false,
         waiting: None,
-        mono: saved.mono.clone(),
+        minion: saved.minion.clone(),
         pending: Vec::new(),
         launches: &saved.launches,
         question: Value::Null,
@@ -2563,7 +2572,7 @@ mod tests {
         window.update(cx, |shell, window, cx| {
             let store = locked(&shell.store).unwrap();
             let summary = shell.session_summaries[&id].clone();
-            let saved = Saved { id, settings: store.agent_settings(id).unwrap().unwrap(), rows: store.load(id).unwrap().rows, harness: summary.provider, cwd: summary.cwd, history: None, mono: None, launches: HashMap::new() };
+            let saved = Saved { id, settings: store.agent_settings(id).unwrap().unwrap(), rows: store.load(id).unwrap().rows, harness: summary.provider, cwd: summary.cwd, history: None, minion: None, launches: HashMap::new() };
             drop(store);
             let from_disk = saved_snapshot(&saved).usage_limit;
             let live = shell.with_live_snapshot(&Target::Session(id), cx, |s| s.usage_limit.clone()).unwrap();
@@ -2574,7 +2583,7 @@ mod tests {
             assert!(shell.mobile_session_command("session.resumeUsageAtReset", &params, window, cx).unwrap_err().contains("changed"));
             shell.sessions[&id].update(cx, |v, _| {
                 v.settings.usage_limit.as_mut().unwrap().resets_at = None;
-                v.settings.mono = Some(monocode_core::agent::MonoContext { mono: Default::default(), root: "/fixture".into(), executable: "/fixture/binary".into() });
+                v.settings.minion = Some(monocode_core::agent::MinionContext { minion: Default::default(), root: "/fixture".into(), executable: "/fixture/binary".into() });
             });
             let token = shell.sessions[&id].read(cx).mobile_usage_limit(cx)["token"].clone();
             let params = json!({"conversationId":conversation, "token":token});
@@ -2602,7 +2611,7 @@ mod tests {
             harness: "codex".into(),
             cwd: "/fixture".into(),
             history: None,
-            mono: None,
+            minion: None,
             launches: HashMap::new(),
         };
         let state = saved_snapshot(&saved).usage_limit;

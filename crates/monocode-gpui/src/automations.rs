@@ -806,7 +806,7 @@ impl Automations {
                         this.load_controls(cx);
                     }
                     ProjectPicked::New => this.browse_project(cx),
-                    ProjectPicked::Remote | ProjectPicked::Mono(_) => {}
+                    ProjectPicked::Remote | ProjectPicked::Minion(_) => {}
                 }
                 window.focus(&this.focus, cx);
                 cx.notify();

@@ -28,7 +28,7 @@ impl Conversation {
     }
 
     pub(super) fn preserve_new_composer(&self, cx: &gpui::App) -> bool {
-        self.settings.mono.is_none()
+        self.settings.minion.is_none()
             && (!self.input.read(cx).content.is_empty() || !self.attachments.is_empty())
     }
     pub(super) fn enqueue_restored_prompt(&mut self, prompt: String, cx: &mut Context<Self>) {
@@ -68,7 +68,7 @@ impl Conversation {
                 .as_ref()
                 .is_some_and(|sheet| sheet.read(cx).is_open() || sheet.read(cx).is_running())
             || self.status != "Ready"
-            || self.settings.mono.is_some()
+            || self.settings.minion.is_some()
             || self.account_switching
             || self.preparing_worktree
             || self.planning_orchestration
@@ -76,7 +76,7 @@ impl Conversation {
             || self.orchestration_progress.is_some()
             || self.settings.usage_limit.is_some()
             || !self.history_actions.is_empty()
-            || self.mono_ui.external.is_some()
+            || self.minion_ui.external.is_some()
             || self.controls.is_some()
             || self.needs_approval()
             || self.attaching
@@ -117,7 +117,7 @@ impl Conversation {
         self.loading = true;
         let id = self.summary.id;
         let store = self.store.clone();
-        let mono = self.settings.mono.is_some();
+        let minion = self.settings.minion.is_some();
         let work = cx.background_executor().spawn(async move {
             let (history, turns, before) = {
                 let store = locked(&store)?;
@@ -128,7 +128,7 @@ impl Conversation {
                 )
             };
             Ok::<_, String>((
-                crate::transcript::PreparedHistory::new(history.rows, mono),
+                crate::transcript::PreparedHistory::new(history.rows, minion),
                 turns,
                 before,
             ))
@@ -154,7 +154,7 @@ impl Conversation {
                         }
                         this.run_history_actions(cx);
                         this.pump_follow_ups(cx);
-                        this.mono_flush_external(cx);
+                        this.minion_flush_external(cx);
                     }
                     Err(error) => this.status = error,
                 }
@@ -240,7 +240,7 @@ mod tests {
             // Keep the test's restore under its own control; no provider runs.
             chat.loading = true;
             chat.settings.revision = 17;
-            chat.settings.mono_message_id = Some("delivery-receipt".into());
+            chat.settings.minion_message_id = Some("delivery-receipt".into());
             chat.model = Some("original-model".into());
             chat.input
                 .update(cx, |input, cx| input.set_text("Unsent draft".into(), cx));
@@ -254,13 +254,13 @@ mod tests {
             assert_eq!(chat.settings.revision, 17);
             assert_eq!(chat.model.as_deref(), Some("original-model"));
             assert_eq!(
-                chat.settings.mono_message_id.as_deref(),
+                chat.settings.minion_message_id.as_deref(),
                 Some("delivery-receipt")
             );
             assert_eq!(chat.input.read(cx).content, "Unsent draft");
             assert_eq!(chat.history_actions.len(), 1);
             assert!(!chat.ready_for_external(cx));
-            assert!(chat.mono_post("assistant", "Report".into(), cx).is_err());
+            assert!(chat.minion_post("assistant", "Report".into(), cx).is_err());
             assert!(chat.transcript.read(cx).source_rows().is_empty());
             // Replace the launch intent with observable, provider-free work to
             // verify FIFO actions cannot run against the empty suspended view.
@@ -302,7 +302,7 @@ mod tests {
             assert_eq!(chat.settings.revision, 19);
             assert!(chat.history_actions.is_empty());
             assert_eq!(
-                chat.settings.mono_message_id.as_deref(),
+                chat.settings.minion_message_id.as_deref(),
                 Some("delivery-receipt")
             );
             chat.follow_ups.state.paused = true;

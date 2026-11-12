@@ -52,7 +52,7 @@ mod memory_log;
 mod metal_tests;
 mod mobile;
 mod modal;
-mod monos;
+mod minions;
 mod notes;
 mod notifications;
 mod pane_layout;
@@ -199,7 +199,7 @@ fn main() {
         return;
     }
     if cli_args.first().is_some_and(|a| a == "app-mcp") {
-        if let Err(error) = monocode_core::mono::bridge::mcp_stdio() {
+        if let Err(error) = monocode_core::minion::bridge::mcp_stdio() {
             eprintln!("{error}");
             std::process::exit(1);
         }
@@ -221,7 +221,7 @@ fn main() {
         return;
     }
     if cli_args.first().is_some_and(|a| a == "app") {
-        match monocode_core::mono::bridge::client(&cli_args[1..]) {
+        match monocode_core::minion::bridge::client(&cli_args[1..]) {
             Ok(value) => {
                 println!("{value}");
                 if value.get("ok") == Some(&serde_json::Value::Bool(false)) {

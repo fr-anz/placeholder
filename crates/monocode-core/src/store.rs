@@ -1,9 +1,21 @@
 //! Session storage. Desktop launches use Monocode's existing schema directly.
+
+/// Legacy storage names, kept so existing stores stay readable: the shared
+/// desktop database owns this schema (see fixtures/upstream) and the upstream
+/// desktop app reads and writes the same tables, so they keep the desktop's
+/// historical "mono_" names across the Minion rename.
+pub(crate) const LEGACY_TRANSCRIPTS_TABLE: &str = "mono_transcripts";
+pub(crate) const LEGACY_TURNS_TABLE: &str = "mono_turns";
+pub(crate) const LEGACY_BLOCKS_TABLE: &str = "mono_blocks";
+/// Delivered-message receipts are opaque tokens keyed by this prefix; renaming
+/// them would orphan every marker and re-post queued messages.
+pub(crate) const LEGACY_DELIVERED_PREFIX: &str = "mono-delivered:";
+
 mod app_access;
 mod contributions;
 mod managed_sessions;
 mod monocode_import;
-mod monos;
+mod minions;
 mod notes;
 mod remote;
 mod remote_legacy;
@@ -692,7 +704,7 @@ impl Store {
             result
         }
     }
-    /// The cursor for the turns before `load`'s rows, when a Mono's history
+    /// The cursor for the turns before `load`'s rows, when a Minion's history
     /// is paged rather than loaded whole.
     pub fn history_before(&self, session: i64) -> Result<Option<i64>, String> {
         if self.shared.is_none() || self.remote_session(session)?.is_some() {
@@ -815,7 +827,7 @@ impl Store {
             .map_err(|e| e.to_string())?;
         }
         if let Some(id) = message_id {
-            tx.execute("INSERT INTO native_settings(key,value) VALUES(?1,'1') ON CONFLICT(key) DO UPDATE SET value='1'",[format!("mono-delivered:{session}:{id}")]).map_err(|e|e.to_string())?;
+            tx.execute("INSERT INTO native_settings(key,value) VALUES(?1,'1') ON CONFLICT(key) DO UPDATE SET value='1'",[format!("{LEGACY_DELIVERED_PREFIX}{session}:{id}")]).map_err(|e|e.to_string())?;
         }
         tx.commit().map_err(|e| e.to_string())
     }
@@ -1052,7 +1064,7 @@ impl Store {
                 format!("agent:{id}"),
                 format!("context:{id}"),
                 format!("follow-up:{id}"),
-                format!("mono-delivered:{id}:%"),
+                format!("{LEGACY_DELIVERED_PREFIX}{id}:%"),
                 format!("started-by:{id}"),
                 format!("orchestration:{id}"),
                 format!("inbox-ask:{id}"),
@@ -1413,13 +1425,13 @@ mod tests {
         store
             .write_rows(session.id, answer, &transcript.rows[answer..])
             .unwrap();
-        let mut roster = crate::mono::Roster::default();
-        let mono = roster.create(Vec::new()).id.clone();
+        let mut roster = crate::minion::Roster::default();
+        let minion = roster.create(Vec::new()).id.clone();
         roster
-            .get_mut(&mono)
+            .get_mut(&minion)
             .unwrap()
             .outbox
-            .push(crate::mono::Message {
+            .push(crate::minion::Message {
                 id: "queued".into(),
                 text: "Tomorrow".into(),
                 sent_at,
@@ -1434,7 +1446,7 @@ mod tests {
         assert_eq!(saved.rows, transcript.rows);
         assert_eq!(saved.rows[answer].sent_at, answer_time);
         assert_eq!(
-            crate::mono::Roster::load(&store).unwrap().monos[0].outbox[0].sent_at,
+            crate::minion::Roster::load(&store).unwrap().minions[0].outbox[0].sent_at,
             sent_at
         );
         let legacy: Row =

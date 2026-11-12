@@ -157,7 +157,7 @@ impl Shell {
         else {
             return;
         };
-        let over = over.map(|(target, edge)| (self.resolve_mono_target(target, cx), edge));
+        let over = over.map(|(target, edge)| (self.resolve_minion_target(target, cx), edge));
         // Never take the shell out of the dock without somewhere to put it:
         // a terminal pane no tab holds is pruned, and its shell stops.
         if insert.is_none()
@@ -274,8 +274,8 @@ impl Shell {
         if let Some(session) = self.ensure_session(owner, cx) {
             self.workspace.project = session.read(cx).summary.cwd.clone();
         }
-        if let Some(monos) = &self.monos {
-            monos.update(cx, |m, cx| m.close(cx));
+        if let Some(minions) = &self.minions {
+            minions.update(cx, |m, cx| m.close(cx));
         }
         self.navigation_revision += 1;
         self.leave_app_views(cx);

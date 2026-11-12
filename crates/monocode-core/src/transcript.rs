@@ -5,6 +5,15 @@ pub mod attachments;
 
 pub const ROW_BYTES: usize = 2048;
 
+/// Row roles stored under the desktop's historical names: the shared desktop
+/// database, the mobile protocol and the upstream desktop app read and write
+/// these exact strings, so they keep them across the Minion rename.
+pub const LEGACY_MONO_SYSTEM: &str = "mono-system";
+pub const LEGACY_MONO_CARD: &str = "mono-card";
+pub const LEGACY_MONO_DOCUMENT: &str = "mono-document";
+pub const LEGACY_MONO_NOTE: &str = "mono-note";
+pub const LEGACY_MONO_LAUNCH: &str = "mono-launch";
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Interjection {
     pub text: String,
@@ -32,7 +41,7 @@ pub struct Row {
 }
 impl Row {
     pub fn is_prompt(&self) -> bool {
-        matches!(self.role.as_str(), "user" | "mono-system")
+        matches!(self.role.as_str(), "user" | LEGACY_MONO_SYSTEM)
     }
 }
 

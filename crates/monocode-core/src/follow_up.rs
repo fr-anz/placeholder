@@ -103,7 +103,7 @@ impl State {
                 }
                 if !target.exists() {
                     std::fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
-                    let temporary = parent.join(format!(".copy-{}", crate::mono::new_id()));
+                    let temporary = parent.join(format!(".copy-{}", crate::minion::new_id()));
                     if let Err(error) = std::fs::copy(&*source, &temporary)
                         .and_then(|_| std::fs::rename(&temporary, &target))
                     {
@@ -131,7 +131,7 @@ impl crate::store::Store {
         let mut remaining = Vec::new();
         for message in state.messages {
             if self
-                .setting(&format!("mono-delivered:{session}:{}", message.id))?
+                .setting(&format!("{}{session}:{}", crate::store::LEGACY_DELIVERED_PREFIX, message.id))?
                 .is_none()
             {
                 remaining.push(message);
@@ -140,7 +140,7 @@ impl crate::store::Store {
         state.messages = remaining;
         if let Some(draft) = &state.draft {
             if self
-                .setting(&format!("mono-delivered:{session}:{}", draft.id))?
+                .setting(&format!("{}{session}:{}", crate::store::LEGACY_DELIVERED_PREFIX, draft.id))?
                 .is_some()
             {
                 state.draft = None;

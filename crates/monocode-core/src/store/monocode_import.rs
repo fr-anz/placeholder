@@ -149,7 +149,7 @@ fn import_sessions(
         }
         let raw: String = session.get(8)?;
         let blocks: Vec<Value> = serde_json::from_str(&raw).map_err(invalid)?;
-        // Empty/Mono-only histories and unsent drafts aren't completed chats.
+        // Empty/Minion-only histories and unsent drafts aren't completed chats.
         if !blocks
             .iter()
             .any(|b| b["role"] == "user" && b["draft"] != true && b["internal"] != true)

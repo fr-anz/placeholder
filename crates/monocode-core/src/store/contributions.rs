@@ -100,11 +100,12 @@ impl Store {
         if window {
             return Ok(true);
         }
-        // Long Mono conversations keep older history block by block.
+        // Long Minion conversations keep older history block by block.
         let paged: bool = self
             .conn
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='mono_blocks')",
+                &format!("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{table}')",
+                    table = super::LEGACY_BLOCKS_TABLE),
                 [],
                 |r| r.get(0),
             )
@@ -115,8 +116,9 @@ impl Store {
         self.conn
             .query_row(
                 &format!(
-                    "SELECT EXISTS(SELECT 1 FROM mono_blocks WHERE session_id=?1 AND ({}))",
-                    any("block_json")
+                    "SELECT EXISTS(SELECT 1 FROM {table} WHERE session_id=?1 AND ({}))",
+                    any("block_json"),
+                    table = super::LEGACY_BLOCKS_TABLE
                 ),
                 values.as_slice(),
                 |r| r.get(0),

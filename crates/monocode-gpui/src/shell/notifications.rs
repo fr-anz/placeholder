@@ -131,9 +131,9 @@ impl Shell {
             || chat.notification_was_cancelled()
             || chat.summary.archived
             || self
-                .monos
+                .minions
                 .as_ref()
-                .is_some_and(|monos| monos.read(cx).is_mono_session(id))
+                .is_some_and(|minions| minions.read(cx).is_minion_session(id))
         {
             // Ended with no finish to send, as when stopped.
             if ended {
@@ -271,23 +271,23 @@ impl Shell {
                 cx.notify();
             },
         ));
-        if let Some(monos) = self.monos.clone() {
+        if let Some(minions) = self.minions.clone() {
             self.observations.push(cx.subscribe(
-                &monos,
-                |this, _, _: &crate::monos::NotificationChanged, cx| {
+                &minions,
+                |this, _, _: &crate::minions::NotificationChanged, cx| {
                     this.process_notification_inputs(cx);
                     cx.notify()
                 },
             ));
             self.observations.push(cx.subscribe(
-                &monos,
-                |this, _, event: &crate::monos::NotificationPosted, cx| {
+                &minions,
+                |this, _, event: &crate::minions::NotificationPosted, cx| {
                     this.notify_mobile_post(event.session, &event.body, cx)
                 },
             ));
             self.observations.push(cx.subscribe(
-                &monos,
-                |this, _, event: &crate::monos::NotificationFinished, cx| {
+                &minions,
+                |this, _, event: &crate::minions::NotificationFinished, cx| {
                     if !event.was_cancelled && !event.habit && !event.summary.archived {
                         this.deliver_session_notice(
                             &event.summary,
@@ -374,8 +374,8 @@ impl Shell {
 
     fn notification_chats(&self, cx: &App) -> Vec<Entity<Conversation>> {
         let mut views: Vec<_> = self.sessions.values().cloned().collect();
-        if let Some(monos) = &self.monos {
-            views.extend(monos.read(cx).all_notification_chats(cx));
+        if let Some(minions) = &self.minions {
+            views.extend(minions.read(cx).all_notification_chats(cx));
         }
         let mut seen = HashSet::new();
         views.retain(|view| seen.insert(view.read(cx).summary.id));
@@ -387,7 +387,7 @@ impl Shell {
         self.sessions
             .get(&id)
             .cloned()
-            .or_else(|| self.monos.as_ref()?.read(cx).notification_entity(id, cx))
+            .or_else(|| self.minions.as_ref()?.read(cx).notification_entity(id, cx))
     }
 
     /// Advance banners and the Dock badge while an occluded window skips render.
@@ -446,9 +446,9 @@ impl Shell {
         if self.app_view_open() || self.settings.is_some() || self.search_page() {
             return false;
         }
-        if self.mono_active(cx) {
+        if self.minion_active(cx) {
             return self
-                .monos
+                .minions
                 .as_ref()
                 .and_then(|m| m.read(cx).active_notification_session(cx))
                 == Some(id);
@@ -493,9 +493,9 @@ impl Shell {
                     && !chat.summary.archived
                     && self.sessions.contains_key(&id)
                     && !self
-                        .monos
+                        .minions
                         .as_ref()
-                        .is_some_and(|monos| monos.read(cx).is_mono_session(id))
+                        .is_some_and(|minions| minions.read(cx).is_minion_session(id))
                 {
                     completed.push((chat.summary.clone(), chat.notification_reply_body(cx)));
                 } else {
@@ -504,7 +504,7 @@ impl Shell {
                 }
             }
             directories.insert(id.to_string(), chat.summary.cwd.clone());
-            let mono_visible = self.mono_active(cx) && self.notice_session_visible(id, cx);
+            let minion_visible = self.minion_active(cx) && self.notice_session_visible(id, cx);
             snapshots.push(SessionInputs {
                 session_id: id.to_string(),
                 title: chat.display_title().to_owned(),
@@ -514,7 +514,7 @@ impl Shell {
                 inbox_ask: false,
                 orchestration_worker: self.orchestration_worker(id),
                 conversation_focused: self.window_active
-                    && (self.workspace.active == Some(id) || mono_visible)
+                    && (self.workspace.active == Some(id) || minion_visible)
                     && self.notice_session_visible(id, cx)
                     && chat.composer_focused(window, cx),
             });
@@ -728,13 +728,13 @@ impl Shell {
                 this.close_settings(window, cx);
                 this.leave_app_views(cx);
                 this.leave_app_search(cx);
-                if let Some(monos) = this.monos.clone()
-                    && monos.update(cx, |m, cx| m.open_notification_session(id, window, cx))
+                if let Some(minions) = this.minions.clone()
+                    && minions.update(cx, |m, cx| m.open_notification_session(id, window, cx))
                 {
                     window.activate_window();
                     return;
                 }
-                // Habit runs share their live Conversation with the Mono
+                // Habit runs share their live Conversation with the Minion
                 // manager. Adopt that entity so controls answer the running
                 // provider, rather than constructing a disconnected history.
                 if !this.sessions.contains_key(&id)
@@ -938,12 +938,12 @@ impl Shell {
 
     pub(super) fn notices_overlay(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let state = &self.notification_state;
-        let mono_error = self.monos.as_ref().and_then(|monos| {
-            monos
+        let minion_error = self.minions.as_ref().and_then(|minions| {
+            minions
                 .read(cx)
                 .error
                 .clone()
-                .map(|message| (monos.clone(), message))
+                .map(|message| (minions.clone(), message))
         });
         let stack = div()
             .id("notification-stack")
@@ -969,14 +969,14 @@ impl Shell {
                         })),
                 ))
             })
-            .when_some(mono_error, |stack, (monos, message)| {
+            .when_some(minion_error, |stack, (minions, message)| {
                 stack.child(errors::card(
-                    "mono-error",
+                    "minion-error",
                     message,
-                    icon_button("mono-error-close", "Dismiss Mono error", "close")
-                        .debug_selector(|| "mono-error-close".into())
+                    icon_button("minion-error-close", "Dismiss Minion error", "close")
+                        .debug_selector(|| "minion-error-close".into())
                         .on_click(cx.listener(move |_, _, _, cx| {
-                            monos.update(cx, |monos, cx| monos.dismiss_error(cx));
+                            minions.update(cx, |minions, cx| minions.dismiss_error(cx));
                         })),
                 ))
             })
@@ -1005,7 +1005,7 @@ impl Shell {
                         .child(state.approvals.clone()),
                 )
             });
-        // Toasts remain actionable above dialogs, including Mono settings.
+        // Toasts remain actionable above dialogs, including Minion settings.
         gpui::deferred(stack).with_priority(110).into_any_element()
     }
 
@@ -1229,7 +1229,7 @@ impl Shell {
     }
 
     /// The pane host positions the returned card at top/right 12px, clipped to
-    /// the exact session surface, so split chats and Mono sessions stay scoped.
+    /// the exact session surface, so split chats and Minion sessions stay scoped.
     pub(super) fn linked_notice(
         &mut self,
         id: i64,
@@ -1285,10 +1285,10 @@ impl Shell {
                 cx.spawn(async move |this, cx| {
                     let _ = this.update_in(cx, |this, window, cx| {
                         this.close_settings(window, cx);
-                        let opened_mono = this.monos.clone().is_some_and(|monos| {
-                            monos.update(cx, |m, cx| m.open_notification_session(id, window, cx))
+                        let opened_minion = this.minions.clone().is_some_and(|minions| {
+                            minions.update(cx, |m, cx| m.open_notification_session(id, window, cx))
                         });
-                        if !opened_mono {
+                        if !opened_minion {
                             this.open(id, window, cx);
                         }
                         if let Some(view) = this.notification_chat(id, cx) {

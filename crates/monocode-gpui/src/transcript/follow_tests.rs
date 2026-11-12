@@ -14,7 +14,7 @@ fn chat(cx: &mut TestAppContext) -> gpui::WindowHandle<TranscriptView> {
     chat_mode(cx, true)
 }
 
-fn chat_mode(cx: &mut TestAppContext, mono: bool) -> gpui::WindowHandle<TranscriptView> {
+fn chat_mode(cx: &mut TestAppContext, minion: bool) -> gpui::WindowHandle<TranscriptView> {
     cx.update(|cx| {
         cx.open_window(
             WindowOptions {
@@ -27,8 +27,8 @@ fn chat_mode(cx: &mut TestAppContext, mono: bool) -> gpui::WindowHandle<Transcri
             move |_, cx| {
                 cx.new(|_| {
                     let mut view = TranscriptView::new();
-                    if mono {
-                        view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                    if minion {
+                        view.minion_mode("cat", 0xe86b5f, "MinionCat");
                     }
                     view
                 })
@@ -105,12 +105,12 @@ fn ordinary_send_keeps_the_previous_anchor_until_its_prompt_arrives(cx: &mut Tes
 }
 
 #[gpui::test]
-fn mono_new_turn_keeps_its_pending_message_below_the_previous_answer(cx: &mut TestAppContext) {
+fn minion_new_turn_keeps_its_pending_message_below_the_previous_answer(cx: &mut TestAppContext) {
     for reduced in [false, true] {
         cx.update(|cx| cx.set_reduce_motion(reduced));
         let view = cx.new(|_| {
             let mut view = TranscriptView::new();
-            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+            view.minion_mode("cat", 0xe86b5f, "MinionCat");
             view
         });
         view.update(cx, |view, cx| {
@@ -145,7 +145,7 @@ fn mono_new_turn_keeps_its_pending_message_below_the_previous_answer(cx: &mut Te
             view.submit_prompt(
                 "Next prompt",
                 &monocode_core::agent::Settings {
-                    mono_message_id: Some("next".into()),
+                    minion_message_id: Some("next".into()),
                     ..Default::default()
                 },
                 cx,
@@ -160,7 +160,7 @@ fn mono_new_turn_keeps_its_pending_message_below_the_previous_answer(cx: &mut Te
             view.set_pending(Vec::new(), cx);
             assert_eq!(view.rows.iter().map(|r| r.key).collect::<Vec<_>>(), keys,
                 "storage acceptance must not move or duplicate the prompt");
-            assert_eq!(view.mono_activity(), Some((3, "Thinking…".into())));
+            assert_eq!(view.minion_activity(), Some((3, "Thinking…".into())));
             assert_eq!(view.entrances.get(&2).copied(), entrance);
 
             view.set_pending(vec![PendingMessage {
@@ -176,7 +176,7 @@ fn mono_new_turn_keeps_its_pending_message_below_the_previous_answer(cx: &mut Te
 }
 
 #[gpui::test]
-fn mono_pending_messages_show_thinking_and_keep_the_same_height_on_delivery(
+fn minion_pending_messages_show_thinking_and_keep_the_same_height_on_delivery(
     cx: &mut TestAppContext,
 ) {
     for reduced in [false, true] {
@@ -214,11 +214,11 @@ fn mono_pending_messages_show_thinking_and_keep_the_same_height_on_delivery(
             render(window, cx);
             let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
             assert!(
-                visual.debug_bounds("mono-turn-ticker").is_some(),
+                visual.debug_bounds("minion-turn-ticker").is_some(),
                 "a new message shows Thinking before the outbox is saved"
             );
             let span = |visual: &mut gpui::VisualTestContext| {
-                let bottom = visual.debug_bounds("mono-turn-ticker").unwrap().bottom();
+                let bottom = visual.debug_bounds("minion-turn-ticker").unwrap().bottom();
                 let top = window
                     .update(visual, |_, window, _| {
                         let scale = window.scale_factor();
@@ -244,7 +244,7 @@ fn mono_pending_messages_show_thinking_and_keep_the_same_height_on_delivery(
                     view.submit_prompt(
                         "Next prompt",
                         &monocode_core::agent::Settings {
-                            mono_message_id: Some("next".into()),
+                            minion_message_id: Some("next".into()),
                             ..Default::default()
                         },
                         cx,
@@ -252,7 +252,7 @@ fn mono_pending_messages_show_thinking_and_keep_the_same_height_on_delivery(
                 })
                 .unwrap();
             render(window, visual);
-            assert!(visual.debug_bounds("mono-turn-ticker").is_some());
+            assert!(visual.debug_bounds("minion-turn-ticker").is_some());
             let after = span(visual);
             assert!(
                 (before - after).abs() < 0.25,
@@ -263,7 +263,7 @@ fn mono_pending_messages_show_thinking_and_keep_the_same_height_on_delivery(
 }
 
 #[gpui::test]
-fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
+fn minion_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
     cx: &mut TestAppContext,
 ) {
     for reduced in [false, true] {
@@ -275,7 +275,7 @@ fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
                 view.streaming(true, cx);
                 view.patch(
                     0,
-                    // The Mono is still thinking: nothing said yet.
+                    // The Minion is still thinking: nothing said yet.
                     vec![row("user", "what"), row("assistant", "")],
                     cx,
                 );
@@ -347,12 +347,12 @@ fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
                 .enumerate()
                 .filter(|(_, row)| matches!(row.body, Body::WorkLine { .. }))
                 .collect();
-            assert_eq!(headers.len(), 1, "one Mono reply for the whole burst");
+            assert_eq!(headers.len(), 1, "one Minion reply for the whole burst");
             assert!(
                 users[1].0 < headers[0].0,
-                "both user messages stay before the Mono reply"
+                "both user messages stay before the Minion reply"
             );
-            assert_eq!(view.mono_group_start(3), 1);
+            assert_eq!(view.minion_group_start(3), 1);
             let (response, _) = view.response_rows(1);
             assert!(
                 response
@@ -397,7 +397,7 @@ fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
         assert_alignment(cx);
         let restored = cx.new(|cx| {
             let mut view = TranscriptView::new();
-            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+            view.minion_mode("cat", 0xe86b5f, "MinionCat");
             view.turns = serde_json::from_str(&receipts).unwrap();
             view.restore_history(rows, cx);
             view
@@ -411,7 +411,7 @@ fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
                 cx,
             );
             assert_eq!(
-                view.mono_group_start(5),
+                view.minion_group_start(5),
                 5,
                 "a message after the final answer starts its own turn"
             );
@@ -420,16 +420,16 @@ fn mono_steered_bubbles_align_and_stay_together_after_the_answer_and_reload(
 }
 
 #[gpui::test]
-fn a_steer_after_the_mono_spoke_reads_in_order_as_a_new_turn(cx: &mut TestAppContext) {
+fn a_steer_after_the_minion_spoke_reads_in_order_as_a_new_turn(cx: &mut TestAppContext) {
     cx.update(|cx| cx.set_reduce_motion(true));
     let view = cx.new(|_| {
         let mut view = TranscriptView::new();
-        view.mono_mode("cat", 0xe86b5f, "MonoCat");
+        view.minion_mode("cat", 0xe86b5f, "MinionCat");
         view
     });
     view.update(cx, |view, cx| {
         // Provider-side the steer joins the running turn; on screen it follows
-        // the Mono's opening sentence, and the rest of the reply comes after it.
+        // the Minion's opening sentence, and the rest of the reply comes after it.
         view.turns.insert(
             3,
             monocode_core::agent::TurnInfo {
@@ -447,7 +447,7 @@ fn a_steer_after_the_mono_spoke_reads_in_order_as_a_new_turn(cx: &mut TestAppCon
             ],
             cx,
         );
-        assert_eq!(view.mono_group_start(3), 3);
+        assert_eq!(view.minion_group_start(3), 3);
         let at = |key: usize, user: bool| {
             view.rows
                 .iter()
@@ -470,18 +470,18 @@ fn a_steer_after_the_mono_spoke_reads_in_order_as_a_new_turn(cx: &mut TestAppCon
                 .filter(|r| matches!(r.body, Body::WorkLine { .. }))
                 .count(),
             2,
-            "the Mono's words after the steer open a new turn"
+            "the Minion's words after the steer open a new turn"
         );
         assert!(!view.stacks_on_next(0));
     });
 }
 
 #[gpui::test]
-fn mono_follow_ups_stay_above_thinking_until_the_final_answer(cx: &mut TestAppContext) {
+fn minion_follow_ups_stay_above_thinking_until_the_final_answer(cx: &mut TestAppContext) {
     cx.update(|cx| cx.set_reduce_motion(true));
     let view = cx.new(|_| {
         let mut view = TranscriptView::new();
-        view.mono_mode("cat", 0xe86b5f, "MonoCat");
+        view.minion_mode("cat", 0xe86b5f, "MinionCat");
         view
     });
     view.update(cx, |view, cx| {
@@ -514,11 +514,11 @@ fn mono_follow_ups_stay_above_thinking_until_the_final_answer(cx: &mut TestAppCo
                 .position(|r| matches!(r.body, Body::WorkLine { turn: 1, .. }))
                 .unwrap();
             if spoke {
-                // Once the Mono has said something, the chat reads in order.
+                // Once the Minion has said something, the chat reads in order.
                 assert!(!view.stacks_on_next(0));
                 assert!(
                     pending > thinking,
-                    "a message sent after the Mono spoke follows its words"
+                    "a message sent after the Minion spoke follows its words"
                 );
             } else {
                 assert!(
@@ -788,12 +788,12 @@ fn input_chat(cx: &mut TestAppContext, text: &str) -> gpui::WindowHandle<SubmitC
                 cx.new(|cx| {
                     let input = cx.new(crate::input::Input::new);
                     input.update(cx, |input, cx| {
-                        input.mono_composer("MonoCat", cx);
+                        input.minion_composer("MinionCat", cx);
                         input.set_text(text.to_owned(), cx);
                     });
                     let transcript = cx.new(|cx| {
                         let mut view = TranscriptView::new();
-                        view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                        view.minion_mode("cat", 0xe86b5f, "MinionCat");
                         view.patch(
                             0,
                             vec![row("user", "Earlier"), row("assistant", "Done")],
@@ -1018,7 +1018,7 @@ fn delivery_does_not_restart_settled_bubbles_or_override_reduced_motion(cx: &mut
         for remove_first in [false, true] {
             let view = cx.new(|_| {
                 let mut view = TranscriptView::new();
-                view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                view.minion_mode("cat", 0xe86b5f, "MinionCat");
                 view
             });
             view.update(cx, |view, cx| {
@@ -1103,7 +1103,7 @@ fn sending_the_next_message_keeps_the_previous_reply_settled(cx: &mut TestAppCon
 }
 
 #[gpui::test]
-fn mono_name_badge_stays_visible_after_the_live_ticker_finishes(cx: &mut TestAppContext) {
+fn minion_name_badge_stays_visible_after_the_live_ticker_finishes(cx: &mut TestAppContext) {
     let window = chat(cx);
     window
         .update(cx, |view, _, cx| {
@@ -1115,7 +1115,7 @@ fn mono_name_badge_stays_visible_after_the_live_ticker_finishes(cx: &mut TestApp
     render(window, cx);
     assert!(
         gpui::VisualTestContext::from_window(window.into(), cx)
-            .debug_bounds("mono-signature-pill")
+            .debug_bounds("minion-signature-pill")
             .is_some()
     );
     window
@@ -1131,18 +1131,18 @@ fn mono_name_badge_stays_visible_after_the_live_ticker_finishes(cx: &mut TestApp
     render(window, cx);
     assert!(
         gpui::VisualTestContext::from_window(window.into(), cx)
-            .debug_bounds("mono-signature-pill")
+            .debug_bounds("minion-signature-pill")
             .is_some()
     );
     assert!(
         gpui::VisualTestContext::from_window(window.into(), cx)
-            .debug_bounds("mono-turn-ticker")
+            .debug_bounds("minion-turn-ticker")
             .is_none()
     );
 }
 
 #[gpui::test]
-fn mono_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext) {
+fn minion_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext) {
     let window = chat(cx);
     window
         .update(cx, |view, _, cx| {
@@ -1164,7 +1164,7 @@ fn mono_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext)
     {
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
         assert!(
-            visual.debug_bounds("mono-turn-ticker").is_none(),
+            visual.debug_bounds("minion-turn-ticker").is_none(),
             "the completed turn shows no status while the new prompt is being delivered"
         );
     }
@@ -1182,7 +1182,7 @@ fn mono_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext)
     {
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
         assert!(
-            visual.debug_bounds("mono-turn-ticker").is_some(),
+            visual.debug_bounds("minion-turn-ticker").is_some(),
             "Thinking appears as soon as the live prompt arrives"
         );
     }
@@ -1196,14 +1196,14 @@ fn mono_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext)
         window
             .update(cx, |view, _, cx| {
                 view.patch(3, vec![row(role, text)], cx);
-                assert_eq!(view.mono_activity(), Some((3, label.into())));
+                assert_eq!(view.minion_activity(), Some((3, label.into())));
             })
             .unwrap();
         render(window, cx);
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
-        assert!(visual.debug_bounds("mono-turn-ticker").is_some());
-        assert!(visual.debug_bounds("mono-signature-pill").is_some());
-        assert!(visual.debug_bounds("mono-status").is_none());
+        assert!(visual.debug_bounds("minion-turn-ticker").is_some());
+        assert!(visual.debug_bounds("minion-signature-pill").is_some());
+        assert!(visual.debug_bounds("minion-status").is_none());
     }
     // The ticker stays beside the badge above the opening reply.
     for (name, input, label) in [
@@ -1214,7 +1214,7 @@ fn mono_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext)
         ),
         ("Read", r#"{"file_path":"notes.md"}"#, "Reading file…"),
         ("Write", r#"{"file_path":"notes.md"}"#, "Editing file…"),
-        ("Grep", r#"{"pattern":"Mono"}"#, "Exploring project…"),
+        ("Grep", r#"{"pattern":"Minion"}"#, "Exploring project…"),
     ] {
         window
             .update(cx, |view, _, cx| {
@@ -1233,13 +1233,13 @@ fn mono_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext)
                     cx,
                 );
                 view.entrances.clear();
-                assert_eq!(view.mono_activity(), Some((3, label.into())));
+                assert_eq!(view.minion_activity(), Some((3, label.into())));
             })
             .unwrap();
         render(window, cx);
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
-        let ticker = visual.debug_bounds("mono-turn-ticker").unwrap();
-        let opening = visual.debug_bounds("mono-prose-3-16").unwrap();
+        let ticker = visual.debug_bounds("minion-turn-ticker").unwrap();
+        let opening = visual.debug_bounds("minion-prose-3-16").unwrap();
         assert!(
             ticker.bottom() <= opening.top(),
             "activity stays in the header above the reply"
@@ -1248,9 +1248,9 @@ fn mono_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext)
     window
         .update(cx, |view, _, cx| {
             view.patch(5, vec![row("assistant", "Done.")], cx);
-            assert_eq!(view.mono_activity(), Some((3, "Typing…".into())));
+            assert_eq!(view.minion_activity(), Some((3, "Typing…".into())));
             view.streaming(false, cx);
-            assert_eq!(view.mono_activity(), None);
+            assert_eq!(view.minion_activity(), None);
             assert!(
                 view.rows
                     .iter()
@@ -1261,24 +1261,24 @@ fn mono_badge_ticker_tracks_work_at_the_top_of_the_turn(cx: &mut TestAppContext)
     render(window, cx);
     assert!(
         gpui::VisualTestContext::from_window(window.into(), cx)
-            .debug_bounds("mono-status")
+            .debug_bounds("minion-status")
             .is_none()
     );
     assert!(
         gpui::VisualTestContext::from_window(window.into(), cx)
-            .debug_bounds("mono-turn-ticker")
+            .debug_bounds("minion-turn-ticker")
             .is_none()
     );
 }
 
 #[gpui::test]
-fn mono_reply_dividers_separate_messages_and_let_cards_do_the_job(cx: &mut TestAppContext) {
-    for mono in [false, true] {
+fn minion_reply_dividers_separate_messages_and_let_cards_do_the_job(cx: &mut TestAppContext) {
+    for minion in [false, true] {
         for card in [None, Some("document"), Some("session"), Some("choices")] {
             let view = cx.new(|_| {
                 let mut view = TranscriptView::new();
-                if mono {
-                    view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                if minion {
+                    view.minion_mode("cat", 0xe86b5f, "MinionCat");
                 }
                 view
             });
@@ -1311,12 +1311,12 @@ fn mono_reply_dividers_separate_messages_and_let_cards_do_the_job(cx: &mut TestA
                     let dividers = view
                         .rows
                         .iter()
-                        .filter(|row| matches!(row.body, Body::MonoDivider))
+                        .filter(|row| matches!(row.body, Body::MinionDivider))
                         .count();
                     assert_eq!(
                         dividers,
-                        usize::from(mono && card.is_none()),
-                        "Mono={mono}, ending={card:?}"
+                        usize::from(minion && card.is_none()),
+                        "Minion={minion}, ending={card:?}"
                     );
                 }
             });
@@ -1325,19 +1325,19 @@ fn mono_reply_dividers_separate_messages_and_let_cards_do_the_job(cx: &mut TestA
 }
 
 #[gpui::test]
-fn mono_reply_divider_waits_for_the_reply_and_disappears_when_a_card_arrives(
+fn minion_reply_divider_waits_for_the_reply_and_disappears_when_a_card_arrives(
     cx: &mut TestAppContext,
 ) {
     let view = cx.new(|_| {
         let mut view = TranscriptView::new();
-        view.mono_mode("cat", 0xe86b5f, "MonoCat");
+        view.minion_mode("cat", 0xe86b5f, "MinionCat");
         view
     });
     view.update(cx, |view, cx| {
         let count = |view: &TranscriptView| {
             view.rows
                 .iter()
-                .filter(|row| matches!(row.body, Body::MonoDivider))
+                .filter(|row| matches!(row.body, Body::MinionDivider))
                 .count()
         };
         view.patch(
@@ -1395,7 +1395,7 @@ fn mono_reply_divider_waits_for_the_reply_and_disappears_when_a_card_arrives(
 }
 
 #[gpui::test]
-fn mono_reply_divider_paints_a_short_dithered_zigzag(cx: &mut TestAppContext) {
+fn minion_reply_divider_paints_a_short_dithered_zigzag(cx: &mut TestAppContext) {
     cx.update(|cx| cx.set_reduce_motion(true));
     let window = chat(cx);
     window
@@ -1414,9 +1414,9 @@ fn mono_reply_divider_paints_a_short_dithered_zigzag(cx: &mut TestAppContext) {
         .unwrap();
     render(window, cx);
     let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
-    let divider = visual.debug_bounds("mono-response-divider").unwrap();
-    let opening = visual.debug_bounds("mono-prose-1-17").unwrap();
-    let reply = visual.debug_bounds("mono-prose-3-16").unwrap();
+    let divider = visual.debug_bounds("minion-response-divider").unwrap();
+    let opening = visual.debug_bounds("minion-prose-1-17").unwrap();
+    let reply = visual.debug_bounds("minion-prose-3-16").unwrap();
     assert!(divider.top() >= opening.bottom());
     assert!(divider.bottom() <= reply.top());
     window
@@ -1457,7 +1457,7 @@ fn mono_reply_divider_paints_a_short_dithered_zigzag(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn mono_notifications_show_only_the_final_message_live_and_after_reload(cx: &mut TestAppContext) {
+fn minion_notifications_show_only_the_final_message_live_and_after_reload(cx: &mut TestAppContext) {
     let visible = |view: &TranscriptView, at: usize| {
         view.rows
             .iter()
@@ -1467,7 +1467,7 @@ fn mono_notifications_show_only_the_final_message_live_and_after_reload(cx: &mut
         for tools in [false, true] {
             let view = cx.new(|_| {
                 let mut view = TranscriptView::new();
-                view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                view.minion_mode("cat", 0xe86b5f, "MinionCat");
                 view
             });
             let (source, opening, progress, answer, report) = view.update(cx, |view, cx| {
@@ -1503,7 +1503,7 @@ fn mono_notifications_show_only_the_final_message_live_and_after_reload(cx: &mut
                 if tools {
                     view.patch(view.source.len(), vec![row("tool", "{}")], cx);
                 }
-                assert!(view.mono_prose_hidden(opening));
+                assert!(view.minion_prose_hidden(opening));
                 assert!(!visible(view, opening));
                 assert!(!visible(view, progress));
                 if history {
@@ -1530,7 +1530,7 @@ fn mono_notifications_show_only_the_final_message_live_and_after_reload(cx: &mut
                 assert!(!visible(view, opening));
                 assert!(!visible(view, progress));
                 assert!(visible(view, answer));
-                let activity = view.response_rows(view.mono_group_start(opening)).0;
+                let activity = view.response_rows(view.minion_group_start(opening)).0;
                 assert!(
                     activity
                         .iter()
@@ -1541,7 +1541,7 @@ fn mono_notifications_show_only_the_final_message_live_and_after_reload(cx: &mut
                 view.patch(
                     report - 1,
                     vec![
-                        row("mono-system", "[Scheduled Mono report]"),
+                        row("mono-system", "[Scheduled Minion report]"),
                         row("assistant", "The daily check is complete."),
                     ],
                     cx,
@@ -1556,7 +1556,7 @@ fn mono_notifications_show_only_the_final_message_live_and_after_reload(cx: &mut
 
             let reloaded = cx.new(|_| {
                 let mut view = TranscriptView::new();
-                view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                view.minion_mode("cat", 0xe86b5f, "MinionCat");
                 view
             });
             reloaded.update(cx, |view, cx| {
@@ -1610,7 +1610,7 @@ fn a_notification_continuing_a_turn_does_not_move_the_chat(cx: &mut TestAppConte
         .unwrap();
     render(window, cx);
     let before = gpui::VisualTestContext::from_window(window.into(), cx)
-        .debug_bounds("mono-launch-card-776")
+        .debug_bounds("minion-launch-card-776")
         .expect("a native launch receipt renders its session card");
     window
         .update(cx, |view, _, cx| {
@@ -1620,7 +1620,7 @@ fn a_notification_continuing_a_turn_does_not_move_the_chat(cx: &mut TestAppConte
         .unwrap();
     render(window, cx);
     let waiting = gpui::VisualTestContext::from_window(window.into(), cx)
-        .debug_bounds("mono-launch-card-776")
+        .debug_bounds("minion-launch-card-776")
         .expect("the card stays visible before the notification prompt is stored");
     assert!((waiting.top() - before.top()).abs() < px(0.25));
     window
@@ -1634,7 +1634,7 @@ fn a_notification_continuing_a_turn_does_not_move_the_chat(cx: &mut TestAppConte
         .unwrap();
     render(window, cx);
     let notified = gpui::VisualTestContext::from_window(window.into(), cx)
-        .debug_bounds("mono-launch-card-776")
+        .debug_bounds("minion-launch-card-776")
         .expect("the session card remains above the notification's reply");
     assert!((notified.top() - before.top()).abs() < px(0.25));
     window.update(cx, |view, _, _| {
@@ -1686,9 +1686,9 @@ fn a_notification_continuing_a_turn_does_not_move_the_chat(cx: &mut TestAppConte
     cx.update(|cx| cx.set_reduce_motion(true));
     render(window, cx);
     let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
-    let card = visual.debug_bounds("mono-launch-card-776").unwrap();
-    let opening = visual.debug_bounds("mono-prose-2-16").unwrap();
-    let answer = visual.debug_bounds("mono-prose-6-16").unwrap();
+    let card = visual.debug_bounds("minion-launch-card-776").unwrap();
+    let opening = visual.debug_bounds("minion-prose-2-16").unwrap();
+    let answer = visual.debug_bounds("minion-prose-6-16").unwrap();
     let above = card.top() - opening.bottom();
     let below = answer.top() + px(12.) - card.bottom();
     assert_eq!(above, px(12.));
@@ -1728,7 +1728,7 @@ fn queued_messages_contribute_their_height_once(cx: &mut TestAppContext) {
     let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
     let height = f32::from(
         visual
-            .debug_bounds("mono-pending-message")
+            .debug_bounds("minion-pending-message")
             .unwrap()
             .size
             .height,
@@ -2706,7 +2706,7 @@ fn empty_and_unrevealed_replacements_do_not_reopen_previous_work(cx: &mut TestAp
 }
 
 #[gpui::test]
-fn a_mono_opening_sentence_already_shown_does_not_enter_again_when_the_run_ends(
+fn a_minion_opening_sentence_already_shown_does_not_enter_again_when_the_run_ends(
     cx: &mut TestAppContext,
 ) {
     cx.update(|cx| cx.set_reduce_motion(false));
@@ -2725,7 +2725,7 @@ fn a_mono_opening_sentence_already_shown_does_not_enter_again_when_the_run_ends(
                 cx,
             );
             assert!(
-                !view.mono_prose_hidden(1),
+                !view.minion_prose_hidden(1),
                 "the opening sentence is on screen"
             );
             view.patch(3, vec![row("assistant", "Started it.")], cx);

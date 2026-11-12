@@ -690,9 +690,9 @@ impl Transcript {
             rows.extend(cache.rows.iter().cloned());
         }
         self.cache.retain(|id, _| live_turns.contains(id));
-        // A message sent while a Mono works would show above its working
+        // A message sent while a Minion works would show above its working
         // mascot until the desktop confirms it; carry the mascot under it at
-        // once, where that confirmation puts it. Only a Mono's has nothing
+        // once, where that confirmation puts it. Only a Minion's has nothing
         // folded under it to leave behind.
         let working = pending_from.and_then(|from| {
             rows[..from].iter().rposition(|r| {
@@ -810,7 +810,7 @@ fn apply_edits(turn: &mut Value, patch: &Value) -> LinkResult<()> {
     Ok(())
 }
 
-/// The emoji of a reply that is only `<reaction>…</reaction>`, which a Mono
+/// The emoji of a reply that is only `<reaction>…</reaction>`, which a Minion
 /// sends to acknowledge a message without words.
 fn reaction(text: &str) -> Option<&str> {
     text.trim()
@@ -900,8 +900,8 @@ fn project(
                 rows.push(Arc::new(row));
             }
             "text" => {
-                // Two replies in a row in one turn: the desktop's Mono chat
-                // breaks them with its pixel divider (drawn on Mono screens only).
+                // Two replies in a row in one turn: the desktop's Minion chat
+                // breaks them with its pixel divider (drawn on Minion screens only).
                 if item_index > 0 && string(&items[item_index - 1], "type") == "text" {
                     rows.push(Arc::new(Row::text(format!("{id}:divider"), "divider", "")));
                 }
@@ -919,7 +919,7 @@ fn project(
                     Arc::make_mut(&mut rows[from]).presentation["top"] =
                         json!(if under_line { 4 } else { 12 });
                     Arc::make_mut(rows.last_mut().unwrap()).presentation["bottom"] = json!(4);
-                    // A Mono's chat draws the reply as one bubble across its rows.
+                    // A Minion's chat draws the reply as one bubble across its rows.
                     let last = rows.len() - 1;
                     for (index, row) in rows[from..].iter_mut().enumerate() {
                         let p = &mut Arc::make_mut(row).presentation;
@@ -1035,15 +1035,15 @@ fn project(
                 rows.push(Arc::new(row));
             }
             "document" => {
-                // A document the Mono wrote: a tap opens it in the reader.
+                // A document the Minion wrote: a tap opens it in the reader.
                 let mut row = Row::text(id, "document", string(item, "title"));
                 row.action = item.clone();
                 row.presentation = json!({"top": 4, "bottom": 8});
                 rows.push(Arc::new(row));
             }
             "sessions" => {
-                // Sessions a Mono started: a card each, under the reply after
-                // the launch. A tap opens the session over the Mono's chat.
+                // Sessions a Minion started: a card each, under the reply after
+                // the launch. A tap opens the session over the Minion's chat.
                 let sessions = item["sessions"].as_array().cloned().unwrap_or_default();
                 for (index, session) in sessions.iter().enumerate() {
                     let mut row = Row::text(
@@ -1187,7 +1187,7 @@ mod reaction_tests {
     }
 
     #[test]
-    fn a_monos_launched_sessions_become_cards_that_open_them() {
+    fn a_minions_launched_sessions_become_cards_that_open_them() {
         let turn = json!({"id":"t","items":[
             {"type":"user","id":"u","text":"go"},
             {"type":"text","id":"a","text":"On it."},
@@ -1207,7 +1207,7 @@ mod reaction_tests {
     }
 
     #[test]
-    fn a_monos_choices_and_documents_become_cards() {
+    fn a_minions_choices_and_documents_become_cards() {
         let turn = json!({"id":"t","items":[
             {"type":"user","id":"u","text":"next?"},
             {"type":"choices","id":"c","options":["Review it","Wait"],"chosen":"Review it"},
@@ -1456,7 +1456,7 @@ mod tests {
         assert!(t.cache.is_empty());
     }
     #[test]
-    fn a_message_sent_while_a_mono_works_takes_its_mascot_and_stacks_under_the_last() {
+    fn a_message_sent_while_a_minion_works_takes_its_mascot_and_stacks_under_the_last() {
         let working = json!({"id":"1","items":[
             {"id":"u","type":"user","text":"Hey"},
             {"id":"h","type":"header","live":true,"label":"Thinking…","entries":[]},

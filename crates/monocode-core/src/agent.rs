@@ -108,11 +108,11 @@ pub struct Settings {
     #[serde(skip)]
     pub environment: std::collections::HashMap<String, String>,
     #[serde(skip)]
-    pub mono: Option<MonoContext>,
+    pub minion: Option<MinionContext>,
     #[serde(skip)]
-    pub mono_message_id: Option<String>,
+    pub minion_message_id: Option<String>,
     #[serde(skip)]
-    pub mono_sent_at: Option<u64>,
+    pub minion_sent_at: Option<u64>,
     #[serde(skip)]
     pub internal_message: bool,
     #[serde(skip)]
@@ -161,8 +161,8 @@ pub struct ProviderSwitch {
     pub provider_id: Option<String>,
 }
 #[derive(Clone, Debug)]
-pub struct MonoContext {
-    pub mono: crate::mono::Mono,
+pub struct MinionContext {
+    pub minion: crate::minion::Minion,
     pub root: std::path::PathBuf,
     pub executable: std::path::PathBuf,
 }

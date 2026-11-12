@@ -155,7 +155,7 @@ impl Shell {
             && self.settings.is_none()
             && !self.app_view_open()
             && !self.search_page()
-            && !self.mono_active(cx)
+            && !self.minion_active(cx)
     }
     /// Switch navigation layouts without changing the new layout's frame style.
     pub(super) fn toggle_layout(&mut self, cx: &mut Context<Self>) {
@@ -189,9 +189,9 @@ impl Shell {
             self.remember_title_tab(TitleTab::App(view));
         }
         if !self.workspace.classic_layout
-            && let Some(id) = self.monos.as_ref().and_then(|m| m.read(cx).active.clone())
+            && let Some(id) = self.minions.as_ref().and_then(|m| m.read(cx).active.clone())
         {
-            self.remember_title_tab(self.mono_tab(id));
+            self.remember_title_tab(self.minion_tab(id));
             self.reveal_active_tab(cx);
         }
         if let Some(search) = &self.app_search {
@@ -376,8 +376,8 @@ impl Shell {
             None
         } else if original && self.app_view_open() {
             Some(self.titlebar_controls_space(self.classic_app_surface_header(cx), window))
-        } else if original && self.mono_active(cx) {
-            let bar = self.classic_mono_header(cx);
+        } else if original && self.minion_active(cx) {
+            let bar = self.classic_minion_header(cx);
             Some(self.titlebar_controls_space(bar, window))
         } else {
             Some(self.titlebar(window, cx))
@@ -511,10 +511,10 @@ impl Shell {
     pub(super) fn corner_room(&self, cx: &gpui::App) -> f32 {
         // Client-drawn window controls hold the corner's right end.
         let controls = self.window_controls;
-        if self.workspace.classic_layout && !self.mono_active(cx) {
+        if self.workspace.classic_layout && !self.minion_active(cx) {
             return controls;
         }
-        if self.mono_active(cx) {
+        if self.minion_active(cx) {
             return if self.corner_tabs_shown() {
                 let minimum = if self.right_panel_width() >= 312. + controls {
                     312.
@@ -755,17 +755,17 @@ impl Shell {
                         // Every project lands on a blank session, as in
                         // Monocode; this is empty only while one is created.
                         .child({
-                            if let Some(monos) =
-                                self.monos.clone().filter(|m| m.read(cx).active.is_some())
+                            if let Some(minions) =
+                                self.minions.clone().filter(|m| m.read(cx).active.is_some())
                             {
-                                let session = monos.read(cx).active_notification_session(cx);
+                                let session = minions.read(cx).active_notification_session(cx);
                                 let linked = session.and_then(|id| self.linked_notice(id, cx));
                                 div()
                                     .relative()
                                     .size_full()
-                                    .child(self.mono_bounds.layout_probe())
-                                    .child(monos)
-                                    .children(self.drop_hint(super::mono_panes::MONO_VIEW))
+                                    .child(self.minion_bounds.layout_probe())
+                                    .child(minions)
+                                    .children(self.drop_hint(super::minion_panes::MINION_VIEW))
                                     .children(linked.map(|notice| {
                                         div()
                                             .absolute()
@@ -865,7 +865,7 @@ impl Shell {
                 (*id, info)
             })
             .collect();
-        if let Some(m) = &self.monos {
+        if let Some(m) = &self.minions {
             sessions.extend(m.read(cx).resource_sessions(cx));
         }
         let content = self
@@ -905,15 +905,15 @@ impl Shell {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{monos::Monos, shell::tests::window};
+    use crate::{minions::Minions, shell::tests::window};
     use gpui::{TestAppContext, WindowHandle};
     use std::time::{Duration, Instant};
 
-    fn mixed_window(cx: &mut TestAppContext) -> (WindowHandle<Shell>, Entity<Monos>, String, i64) {
+    fn mixed_window(cx: &mut TestAppContext) -> (WindowHandle<Shell>, Entity<Minions>, String, i64) {
         let (window, _, session) = window(cx);
         let (manager, id) = window
             .update(cx, |shell, w, cx| {
-                let manager = shell.mono_manager();
+                let manager = shell.minion_manager();
                 manager.update(cx, |m, cx| {
                     m.create(Vec::new(), w, cx);
                     m.dismiss_settings(w, cx);
@@ -1016,7 +1016,7 @@ mod tests {
         cx: &mut TestAppContext,
     ) {
         cx.update(|cx| cx.set_reduce_motion(true));
-        let (window, manager, mono, session) = mixed_window(cx);
+        let (window, manager, minion, session) = mixed_window(cx);
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
         for classic in [false, true] {
             window
@@ -1024,7 +1024,7 @@ mod tests {
                     shell.workspace.classic_layout = classic;
                     assert!(
                         !shell.workspace.right_panel_open,
-                        "opening a Mono respects the session's closed sidebar"
+                        "opening a Minion respects the session's closed sidebar"
                     );
                     cx.notify();
                 })
@@ -1033,14 +1033,14 @@ mod tests {
             assert!(visual.debug_bounds("right-panel-frame").is_none());
             let toggle = visual
                 .debug_bounds(if classic {
-                    "classic-mono-overview"
+                    "classic-minion-overview"
                 } else {
                     "toggle-right-panel"
                 })
                 .unwrap();
             visual.simulate_click(toggle.center(), Default::default());
             visual.run_until_parked();
-            assert!(visual.debug_bounds("mono-overview-panel").is_some());
+            assert!(visual.debug_bounds("minion-overview-panel").is_some());
             let frame = visual.debug_bounds("right-panel-frame").unwrap();
             let bounds = visual.debug_bounds("right-panel-resize").unwrap();
             assert_eq!(bounds.size.width, px(6.));
@@ -1069,7 +1069,7 @@ mod tests {
             let end = handle + gpui::point(px(30.), px(0.));
             visual.simulate_mouse_down(handle, MouseButton::Left, Default::default());
             visual.simulate_mouse_move(end, MouseButton::Left, Default::default());
-            // The pointer is now over a Mono detail layer that occludes mouse
+            // The pointer is now over a Minion detail layer that occludes mouse
             // events. Shrinking and releasing must still reach the shell.
             window
                 .update(visual, |shell, _, _| {
@@ -1082,12 +1082,12 @@ mod tests {
                 Default::default(),
             );
             visual.run_until_parked();
-            let mono_bounds = visual.debug_bounds("right-panel-frame").unwrap();
+            let minion_bounds = visual.debug_bounds("right-panel-frame").unwrap();
             let width = window
                 .update(visual, |shell, w, cx| {
                     assert!(shell.right_resize.is_none());
                     let width = shell.workspace.right_panel_width;
-                    assert_eq!(mono_bounds.size.width, px(width));
+                    assert_eq!(minion_bounds.size.width, px(width));
                     shell.open(session, w, cx);
                     width
                 })
@@ -1098,10 +1098,10 @@ mod tests {
             } else {
                 assert_eq!(
                     visual.debug_bounds("right-panel-frame").unwrap(),
-                    mono_bounds
+                    minion_bounds
                 );
             }
-            assert!(visual.debug_bounds("mono-overview-panel").is_none());
+            assert!(visual.debug_bounds("minion-overview-panel").is_none());
             if !classic {
                 let toggle = visual.debug_bounds("toggle-right-panel").unwrap();
                 visual.simulate_click(toggle.center(), Default::default());
@@ -1109,12 +1109,12 @@ mod tests {
             }
             window
                 .update(visual, |_, w, cx| {
-                    manager.update(cx, |m, cx| m.open(&mono, w, cx))
+                    manager.update(cx, |m, cx| m.open(&minion, w, cx))
                 })
                 .unwrap();
             visual.run_until_parked();
             if classic {
-                let toggle = visual.debug_bounds("classic-mono-overview").unwrap();
+                let toggle = visual.debug_bounds("classic-minion-overview").unwrap();
                 visual.simulate_click(toggle.center(), Default::default());
                 visual.run_until_parked();
             }
@@ -1137,7 +1137,7 @@ mod tests {
 
     #[gpui::test]
     fn switching_tabs_keeps_the_same_sidebar_spring_and_clipped_contents(cx: &mut TestAppContext) {
-        let (window, manager, mono, session) = mixed_window(cx);
+        let (window, manager, minion, session) = mixed_window(cx);
         cx.update(|cx| cx.set_reduce_motion(false));
         window
             .update(cx, |shell, w, cx| shell.toggle_right_panel(w, cx))
@@ -1149,10 +1149,10 @@ mod tests {
                     slide.elapsed(Duration::from_millis(ms));
                     let now = Instant::now();
                     let before = slide.at(now);
-                    if shell.mono_active(cx) {
+                    if shell.minion_active(cx) {
                         shell.open(session, w, cx);
                     } else {
-                        manager.update(cx, |m, cx| m.open(&mono, w, cx));
+                        manager.update(cx, |m, cx| m.open(&minion, w, cx));
                     }
                     assert_eq!(
                         shell.right_slide.as_ref().unwrap().at(now),
@@ -1194,7 +1194,7 @@ mod tests {
                     shell.right_slide.as_ref().unwrap().to,
                     shell.workspace.right_panel_width
                 );
-                manager.update(cx, |m, cx| m.open(&mono, w, cx));
+                manager.update(cx, |m, cx| m.open(&minion, w, cx));
                 shell
                     .right_slide
                     .as_ref()
@@ -1214,6 +1214,6 @@ mod tests {
                 .update(visual, |shell, _, _| shell.workspace.right_panel_width)
                 .unwrap())
         );
-        assert!(visual.debug_bounds("mono-overview-panel").is_some());
+        assert!(visual.debug_bounds("minion-overview-panel").is_some());
     }
 }

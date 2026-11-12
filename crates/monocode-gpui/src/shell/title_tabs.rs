@@ -36,11 +36,11 @@ impl Shell {
         }
     }
 
-    pub(crate) fn click_mono_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn click_minion_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         if std::mem::take(&mut self.skip_tab_click) {
             return;
         }
-        self.open_title_tab(&self.mono_tab(id.into()), window, cx);
+        self.open_title_tab(&self.minion_tab(id.into()), window, cx);
     }
     pub(super) fn tab_scope(&self) -> String {
         format!(
@@ -50,8 +50,8 @@ impl Shell {
         )
     }
 
-    pub(super) fn mono_tab(&self, id: String) -> TitleTab {
-        TitleTab::Mono {
+    pub(super) fn minion_tab(&self, id: String) -> TitleTab {
+        TitleTab::Minion {
             id,
             project: self.workspace.project.clone(),
             worktree: self.working_copy().into(),
@@ -100,7 +100,7 @@ impl Shell {
                             && self.in_worktree_scope(id, cx)
                     }
                 }
-                TitleTab::Mono {
+                TitleTab::Minion {
                     id,
                     project,
                     worktree,
@@ -110,7 +110,7 @@ impl Shell {
                         && path_key(worktree) == path_key(self.working_copy())
                         && self.workspace.preferences.monos
                         && self
-                            .monos
+                            .minions
                             .as_ref()
                             .is_some_and(|m| m.read(cx).roster.get(id).is_some())
                 }
@@ -126,10 +126,10 @@ impl Shell {
         if self.search_page() {
             return Some(TitleTab::Search);
         }
-        self.monos
+        self.minions
             .as_ref()
             .and_then(|m| m.read(cx).active.clone())
-            .map(|id| self.mono_tab(id))
+            .map(|id| self.minion_tab(id))
             .or_else(|| self.workspace.active_tab().map(TitleTab::Session))
     }
 
@@ -146,7 +146,7 @@ impl Shell {
     }
 
     pub(super) fn remember_title_tab(&mut self, tab: TitleTab) {
-        if self.workspace.classic_layout && matches!(tab, TitleTab::Mono { .. }) {
+        if self.workspace.classic_layout && matches!(tab, TitleTab::Minion { .. }) {
             return;
         }
         if !self.workspace.title_order.contains(&tab) {
@@ -155,12 +155,12 @@ impl Shell {
         self.workspace.scope_focus.insert(self.tab_scope(), tab);
     }
 
-    pub(super) fn mono_opened(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(super) fn minion_opened(&mut self, id: String, cx: &mut Context<Self>) {
         if !self
-            .monos
+            .minions
             .as_ref()
             .is_some_and(|m| m.read(cx).active.as_deref() == Some(&id))
-            || self.redirect_mono_to_pane(&id, cx)
+            || self.redirect_minion_to_pane(&id, cx)
         {
             return;
         }
@@ -173,7 +173,7 @@ impl Shell {
         self.leave_app_search(cx);
         self.close_preview(cx);
         self.review_focused = false;
-        self.remember_title_tab(self.mono_tab(id));
+        self.remember_title_tab(self.minion_tab(id));
         self.reveal_active_tab(cx);
         self.persist(cx);
         cx.notify();
@@ -205,9 +205,9 @@ impl Shell {
                     review.update(cx, |r, cx| r.focus_active(window, cx));
                 }
             }
-            TitleTab::Mono { id, .. } => {
-                if let Some(monos) = self.monos.clone() {
-                    monos.update(cx, |m, cx| m.open(id, window, cx));
+            TitleTab::Minion { id, .. } => {
+                if let Some(minions) = self.minions.clone() {
+                    minions.update(cx, |m, cx| m.open(id, window, cx));
                 }
             }
         }
@@ -220,7 +220,7 @@ impl Shell {
     ) -> bool {
         let tab = self.workspace.scope_focus.get(&self.tab_scope()).cloned();
         if let Some(tab) = tab.filter(|tab| self.visible_tabs(cx).contains(tab)) {
-            if matches!(tab, TitleTab::Mono { .. }) {
+            if matches!(tab, TitleTab::Minion { .. }) {
                 self.workspace.active = None;
             }
             self.open_title_tab(&tab, window, cx);
@@ -229,10 +229,10 @@ impl Shell {
         false
     }
 
-    pub(crate) fn close_mono_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn close_minion_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.workspace.classic_layout {
             if self
-                .monos
+                .minions
                 .as_ref()
                 .is_some_and(|m| m.read(cx).active.as_deref() == Some(id))
             {
@@ -240,7 +240,7 @@ impl Shell {
             }
             return;
         }
-        self.close_title_tabs(&[self.mono_tab(id.into())], None, window, cx);
+        self.close_title_tabs(&[self.minion_tab(id.into())], None, window, cx);
     }
 
     pub(super) fn run_title_tab_menu(
@@ -375,8 +375,8 @@ impl Shell {
             .retain(|_, tab| !closing.contains(tab));
         self.workspace.prune_pinned_tabs();
         if replace {
-            if let Some(monos) = self.monos.clone() {
-                monos.update(cx, |m, cx| m.close(cx));
+            if let Some(minions) = self.minions.clone() {
+                minions.update(cx, |m, cx| m.close(cx));
             }
             self.workspace.active = None;
             self.review_focused = false;
@@ -391,10 +391,10 @@ impl Shell {
             self.workspace.active =
                 session_active.filter(|id| self.workspace.tab_of(*id).is_some());
         }
-        self.settle_mono_panes(window, cx);
+        self.settle_minion_panes(window, cx);
         self.history
             .prune(&self.workspace.open_sessions(), self.workspace.active);
-        if self.workspace.active.is_none() && !self.mono_active(cx) && !self.app_view_open() {
+        if self.workspace.active.is_none() && !self.minion_active(cx) && !self.app_view_open() {
             self.focus_active(window, cx);
         }
         self.persist(cx);
@@ -444,11 +444,11 @@ mod tests {
         id
     }
 
-    fn add_mono(window: WindowHandle<Shell>, cx: &mut TestAppContext) -> TitleTab {
+    fn add_minion(window: WindowHandle<Shell>, cx: &mut TestAppContext) -> TitleTab {
         window
             .update(cx, |shell, w, cx| {
                 shell
-                    .mono_manager()
+                    .minion_manager()
                     .update(cx, |m, cx| m.create(Vec::new(), w, cx));
             })
             .unwrap();
@@ -461,28 +461,28 @@ mod tests {
     #[gpui::test]
     fn mixed_tabs_open_in_order_and_close_to_the_visible_neighbor(cx: &mut TestAppContext) {
         let (window, other_project, first) = window(cx);
-        let mono = add_mono(window, cx);
+        let minion = add_minion(window, cx);
         let second = window.update(cx, add_session).unwrap();
         cx.run_until_parked();
-        let last = add_mono(window, cx);
+        let last = add_minion(window, cx);
         window
             .update(cx, |shell, w, cx| {
                 assert_eq!(
                     shell.visible_tabs(cx),
                     [
                         TitleTab::Session(first),
-                        mono.clone(),
+                        minion.clone(),
                         TitleTab::Session(second),
                         last.clone()
                     ]
                 );
-                shell.open_title_tab(&mono, w, cx);
+                shell.open_title_tab(&minion, w, cx);
             })
             .unwrap();
         cx.run_until_parked();
         window
             .update(cx, |shell, w, cx| {
-                shell.close_title_tabs(std::slice::from_ref(&mono), None, w, cx);
+                shell.close_title_tabs(std::slice::from_ref(&minion), None, w, cx);
                 assert_eq!(shell.active_title_tab(cx), Some(TitleTab::Session(second)));
                 shell.close_title_tabs(&[last], None, w, cx);
                 assert_eq!(
@@ -506,21 +506,21 @@ mod tests {
     }
 
     #[gpui::test]
-    fn mono_close_button_and_cmd_w_share_selection_and_focus(cx: &mut TestAppContext) {
+    fn minion_close_button_and_cmd_w_share_selection_and_focus(cx: &mut TestAppContext) {
         let (window, _, first) = window(cx);
         cx.update(|cx| {
             bind_keys(cx);
             input::bind(cx);
             cx.set_reduce_motion(true);
         });
-        let mono = add_mono(window, cx);
+        let minion = add_minion(window, cx);
         let second = window.update(cx, add_session).unwrap();
         window
-            .update(cx, |shell, w, cx| shell.open_title_tab(&mono, w, cx))
+            .update(cx, |shell, w, cx| shell.open_title_tab(&minion, w, cx))
             .unwrap();
         cx.run_until_parked();
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
-        let close = visual.debug_bounds("close-mono-tab-button").unwrap();
+        let close = visual.debug_bounds("close-minion-tab-button").unwrap();
         visual.simulate_click(close.center(), Default::default());
         visual.run_until_parked();
         window
@@ -539,7 +539,7 @@ mod tests {
                 );
             })
             .unwrap();
-        let mono = add_mono(window, visual);
+        let minion = add_minion(window, visual);
         let modifier = if cfg!(target_os = "macos") {
             "cmd"
         } else {
@@ -549,7 +549,7 @@ mod tests {
         visual.run_until_parked();
         window
             .update(visual, |shell, w, cx| {
-                assert!(!shell.visible_tabs(cx).contains(&mono));
+                assert!(!shell.visible_tabs(cx).contains(&minion));
                 assert_eq!(shell.workspace.active, Some(second));
                 assert!(
                     shell.sessions[&second]
@@ -565,7 +565,7 @@ mod tests {
     #[gpui::test]
     fn worktree_tabs_cycle_close_and_return_without_touching_other_scopes(cx: &mut TestAppContext) {
         let (window, other_project, main) = window(cx);
-        let mono_main = add_mono(window, cx);
+        let minion_main = add_minion(window, cx);
         let feature = crate::worktree_switcher::WorktreeFocus {
             path: "/work/feature".into(),
             branch: Some("feature".into()),
@@ -579,12 +579,12 @@ mod tests {
         let feature_session = window
             .update(cx, |shell, _, _| shell.workspace.active.unwrap())
             .unwrap();
-        let mono_feature = add_mono(window, cx);
+        let minion_feature = add_minion(window, cx);
         window
             .update(cx, |shell, w, cx| {
                 assert_eq!(
                     shell.visible_tabs(cx),
-                    [TitleTab::Session(feature_session), mono_feature.clone()]
+                    [TitleTab::Session(feature_session), minion_feature.clone()]
                 );
                 shell.cycle(1, w, cx);
                 assert_eq!(shell.workspace.active, Some(feature_session));
@@ -594,14 +594,14 @@ mod tests {
         cx.run_until_parked();
         window
             .update(cx, |shell, w, cx| {
-                assert_eq!(shell.active_title_tab(cx), Some(mono_feature.clone()));
-                let TitleTab::Mono { id, .. } = &mono_feature else {
-                    panic!("expected a Mono");
+                assert_eq!(shell.active_title_tab(cx), Some(minion_feature.clone()));
+                let TitleTab::Minion { id, .. } = &minion_feature else {
+                    panic!("expected a Minion");
                 };
-                shell.run_menu(MenuTarget::MonoTab(id.clone()), "others", None, w, cx);
+                shell.run_menu(MenuTarget::MinionTab(id.clone()), "others", None, w, cx);
                 assert_eq!(
                     shell.visible_tabs(cx).as_slice(),
-                    std::slice::from_ref(&mono_feature)
+                    std::slice::from_ref(&minion_feature)
                 );
                 assert!(shell.workspace.tabs.contains(&main));
                 assert!(shell.workspace.tabs.contains(&other_project));
@@ -611,10 +611,10 @@ mod tests {
         cx.run_until_parked();
         window
             .update(cx, |shell, w, cx| {
-                assert_eq!(shell.active_title_tab(cx), Some(mono_main.clone()));
+                assert_eq!(shell.active_title_tab(cx), Some(minion_main.clone()));
                 assert_eq!(
                     shell.visible_tabs(cx),
-                    [TitleTab::Session(main), mono_main.clone()]
+                    [TitleTab::Session(main), minion_main.clone()]
                 );
                 shell.select_worktree(Some(feature), w, cx);
             })
@@ -622,7 +622,7 @@ mod tests {
         cx.run_until_parked();
         window
             .update(cx, |shell, w, cx| {
-                assert_eq!(shell.active_title_tab(cx), Some(mono_feature));
+                assert_eq!(shell.active_title_tab(cx), Some(minion_feature));
                 shell.close_title_tabs(&shell.visible_tabs(cx), None, w, cx);
             })
             .unwrap();
@@ -632,21 +632,21 @@ mod tests {
                 assert_eq!(shell.workspace.project, "/work/monocode");
                 assert_eq!(shell.working_copy(), "/work/feature");
                 assert_eq!(shell.visible_tabs(cx).len(), 1);
-                assert!(shell.workspace.title_order.contains(&mono_main));
+                assert!(shell.workspace.title_order.contains(&minion_main));
                 assert!(shell.workspace.tabs.contains(&other_project));
             })
             .unwrap();
     }
 
     #[gpui::test]
-    fn mixed_reorder_and_restart_preserve_order_and_selected_mono(cx: &mut TestAppContext) {
+    fn mixed_reorder_and_restart_preserve_order_and_selected_minion(cx: &mut TestAppContext) {
         let (window, _, first) = window(cx);
-        let mono = add_mono(window, cx);
+        let minion = add_minion(window, cx);
         let second = window.update(cx, add_session).unwrap();
         window
             .update(cx, |shell, w, cx| {
-                shell.reorder_title_tab(&mono, 0, cx);
-                shell.open_title_tab(&mono, w, cx);
+                shell.reorder_title_tab(&minion, 0, cx);
+                shell.open_title_tab(&minion, w, cx);
             })
             .unwrap();
         cx.run_until_parked();
@@ -655,7 +655,7 @@ mod tests {
                 assert_eq!(
                     shell.visible_tabs(cx),
                     [
-                        mono.clone(),
+                        minion.clone(),
                         TitleTab::Session(first),
                         TitleTab::Session(second)
                     ]
@@ -680,12 +680,12 @@ mod tests {
                 assert_eq!(
                     shell.visible_tabs(cx),
                     [
-                        mono.clone(),
+                        minion.clone(),
                         TitleTab::Session(first),
                         TitleTab::Session(second)
                     ]
                 );
-                assert_eq!(shell.active_title_tab(cx), Some(mono));
+                assert_eq!(shell.active_title_tab(cx), Some(minion));
             })
             .unwrap();
     }
@@ -758,7 +758,7 @@ mod interaction_tests {
     }
 
     #[gpui::test]
-    fn sidebar_highlights_only_the_visible_mono_or_session(cx: &mut TestAppContext) {
+    fn sidebar_highlights_only_the_visible_minion_or_session(cx: &mut TestAppContext) {
         let (window, other, session) = window(cx);
         window
             .update(cx, |shell, w, cx| {
@@ -769,27 +769,27 @@ mod interaction_tests {
                     });
                 }
                 shell
-                    .mono_manager()
+                    .minion_manager()
                     .update(cx, |m, cx| m.create(vec!["/work/monocode".into()], w, cx));
             })
             .unwrap();
         cx.run_until_parked();
-        let mono = window
+        let minion = window
             .update(cx, |shell, w, cx| {
-                let mono = shell.active_title_tab(cx).unwrap();
+                let minion = shell.active_title_tab(cx).unwrap();
                 shell.open(session, w, cx);
-                mono
+                minion
             })
             .unwrap();
         cx.run_until_parked();
         cx.refresh().unwrap();
-        let TitleTab::Mono { id, .. } = &mono else {
-            panic!("expected a Mono");
+        let TitleTab::Minion { id, .. } = &minion else {
+            panic!("expected a Minion");
         };
-        let mono_row = format!("mono-rail-{id}");
+        let minion_row = format!("minion-rail-{id}");
         let session_row = format!("sidebar-session-{session}");
         assert!(sidebar_highlight(window, session_row.clone(), cx));
-        assert!(!sidebar_highlight(window, mono_row.clone(), cx));
+        assert!(!sidebar_highlight(window, minion_row.clone(), cx));
         let click = |selector: &str, cx: &mut TestAppContext| {
             let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
             let bounds = visual
@@ -800,11 +800,11 @@ mod interaction_tests {
             visual.run_until_parked();
             visual.refresh().unwrap();
         };
-        click(&mono_row, cx);
-        assert!(sidebar_highlight(window, mono_row.clone(), cx));
+        click(&minion_row, cx);
+        assert!(sidebar_highlight(window, minion_row.clone(), cx));
         assert!(
             !sidebar_highlight(window, session_row.clone(), cx),
-            "a remembered session must not look active while a Mono is visible"
+            "a remembered session must not look active while a Minion is visible"
         );
         window
             .update(cx, |shell, _, _| {
@@ -813,7 +813,7 @@ mod interaction_tests {
             .unwrap();
         click(&session_row, cx);
         assert!(sidebar_highlight(window, session_row.clone(), cx));
-        assert!(!sidebar_highlight(window, mono_row.clone(), cx));
+        assert!(!sidebar_highlight(window, minion_row.clone(), cx));
         // Opening from the title strip must also clear an old bulk selection.
         window
             .update(cx, |shell, w, cx| {
@@ -829,7 +829,7 @@ mod interaction_tests {
                     );
                 }
                 assert_eq!(shell.selected_sessions.len(), 2);
-                shell.open_title_tab(&mono, w, cx);
+                shell.open_title_tab(&minion, w, cx);
             })
             .unwrap();
         cx.run_until_parked();
@@ -841,7 +841,7 @@ mod interaction_tests {
                 assert!(shell.sidebar_target.is_none());
             })
             .unwrap();
-        assert!(sidebar_highlight(window, mono_row, cx));
+        assert!(sidebar_highlight(window, minion_row, cx));
         assert!(!sidebar_highlight(window, session_row, cx));
         assert!(!sidebar_highlight(
             window,
@@ -851,23 +851,23 @@ mod interaction_tests {
     }
 
     #[gpui::test]
-    fn closing_a_session_button_selects_the_adjacent_mono_and_restores_its_composer(
+    fn closing_a_session_button_selects_the_adjacent_minion_and_restores_its_composer(
         cx: &mut TestAppContext,
     ) {
         let (window, _, first) = window(cx);
         window
             .update(cx, |shell, w, cx| {
                 shell
-                    .mono_manager()
+                    .minion_manager()
                     .update(cx, |m, cx| m.create(Vec::new(), w, cx));
             })
             .unwrap();
         cx.run_until_parked();
-        let mono = window
+        let minion = window
             .update(cx, |shell, w, cx| {
-                let mono = shell.active_title_tab(cx).unwrap();
+                let minion = shell.active_title_tab(cx).unwrap();
                 shell.open(first, w, cx);
-                mono
+                minion
             })
             .unwrap();
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
@@ -881,8 +881,8 @@ mod interaction_tests {
         visual.run_until_parked();
         window
             .update(visual, |shell, w, cx| {
-                assert_eq!(shell.active_title_tab(cx), Some(mono));
-                let chat = shell.mono_manager().read(cx).chat().unwrap();
+                assert_eq!(shell.active_title_tab(cx), Some(minion));
+                let chat = shell.minion_manager().read(cx).chat().unwrap();
                 assert!(chat.read(cx).input.focus_handle(cx).is_focused(w));
                 assert_eq!(shell.workspace.project, "/work/monocode");
             })
@@ -890,58 +890,58 @@ mod interaction_tests {
     }
 
     #[gpui::test]
-    fn dragging_a_mono_uses_the_mixed_strip_slots_and_keeps_the_active_session(
+    fn dragging_a_minion_uses_the_mixed_strip_slots_and_keeps_the_active_session(
         cx: &mut TestAppContext,
     ) {
         let (window, _, first) = window(cx);
         window
             .update(cx, |shell, w, cx| {
                 shell
-                    .mono_manager()
+                    .minion_manager()
                     .update(cx, |m, cx| m.create(Vec::new(), w, cx));
             })
             .unwrap();
         cx.run_until_parked();
-        let mono = window
+        let minion = window
             .update(cx, |shell, w, cx| {
-                let mono = shell.active_title_tab(cx).unwrap();
+                let minion = shell.active_title_tab(cx).unwrap();
                 shell.open(first, w, cx);
-                mono
+                minion
             })
             .unwrap();
-        let TitleTab::Mono { id, .. } = &mono else {
-            panic!("expected a Mono");
+        let TitleTab::Minion { id, .. } = &minion else {
+            panic!("expected a Minion");
         };
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
         visual.run_until_parked();
         let session_bounds = visual
             .debug_bounds(Box::leak(format!("title-tab-{first}").into_boxed_str()))
             .unwrap();
-        let mono_bounds = visual
-            .debug_bounds(Box::leak(format!("mono-title-tab-{id}").into_boxed_str()))
+        let minion_bounds = visual
+            .debug_bounds(Box::leak(format!("minion-title-tab-{id}").into_boxed_str()))
             .unwrap();
         visual.simulate_mouse_down(
-            mono_bounds.center(),
+            minion_bounds.center(),
             MouseButton::Left,
             Modifiers::default(),
         );
         visual.simulate_mouse_move(
-            point(session_bounds.center().x, mono_bounds.center().y),
+            point(session_bounds.center().x, minion_bounds.center().y),
             MouseButton::Left,
             Modifiers::default(),
         );
         visual.run_until_parked();
         visual.simulate_mouse_up(
-            point(session_bounds.center().x, mono_bounds.center().y),
+            point(session_bounds.center().x, minion_bounds.center().y),
             MouseButton::Left,
             Modifiers::default(),
         );
         visual.run_until_parked();
         window
             .update(visual, |shell, _, cx| {
-                assert_eq!(shell.visible_tabs(cx), [mono, TitleTab::Session(first)]);
+                assert_eq!(shell.visible_tabs(cx), [minion, TitleTab::Session(first)]);
                 assert_eq!(shell.workspace.active, Some(first));
-                assert!(!shell.mono_active(cx));
+                assert!(!shell.minion_active(cx));
             })
             .unwrap();
     }

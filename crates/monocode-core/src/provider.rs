@@ -492,8 +492,8 @@ impl Protocol {
                         && self.request.provider_id.is_some()
                         && lifecycle::recoverable_codex_resume(&message)
                     {
-                        if self.request.settings.mono.is_some() {
-                            return Err("The saved Mono Codex context could not be resumed. Retry to keep its saved context.".into());
+                        if self.request.settings.minion.is_some() {
+                            return Err("The saved Minion Codex context could not be resumed. Retry to keep its saved context.".into());
                         }
                         self.request.provider_id = None;
                         return self.frame(json!({"id":1,"result":{}}), stdin);
@@ -519,17 +519,17 @@ impl Protocol {
                             )
                             .into();
                         }
-                        if let Some(mono) = self
+                        if let Some(minion) = self
                             .request
                             .settings
-                            .mono
+                            .minion
                             .as_ref()
                             .filter(|_| !self.request.settings.text_only)
                         {
                             params["developerInstructions"] = format!(
                                 "{}\n\n{}",
                                 params["developerInstructions"].as_str().unwrap_or_default(),
-                                crate::mono::instructions(&mono.mono, &mono.executable)
+                                crate::minion::instructions(&minion.minion, &minion.executable)
                             )
                             .into();
                         }
@@ -1413,14 +1413,14 @@ fn run_operation(
         Kind::Codex => {
             command.arg("app-server");
             crate::visual_bridge::configure_codex(&mut command, &request.settings.environment);
-            crate::mono::bridge::configure_codex(
+            crate::minion::bridge::configure_codex(
                 &mut command,
-                request.settings.mono.as_ref(),
+                request.settings.minion.as_ref(),
                 &request.settings.environment,
             );
-            if let Some(mono) = &request.settings.mono {
+            if let Some(minion) = &request.settings.minion {
                 if let Some(home) =
-                    crate::mono::codex_home(&mono.root, &request.settings.account.id)?
+                    crate::minion::codex_home(&minion.root, &request.settings.account.id)?
                 {
                     let sqlite_home = serde_json::to_string(&home).map_err(|e| e.to_string())?;
                     command
@@ -1470,17 +1470,17 @@ fn run_operation(
             }
             let app_server = (!settings.text_only)
                 .then(|| {
-                    crate::mono::bridge::mcp_server(settings.mono.as_ref(), &settings.environment)
+                    crate::minion::bridge::mcp_server(settings.minion.as_ref(), &settings.environment)
                 })
                 .flatten();
             let mut servers = serde_json::Map::new();
             if let Some(server) = app_server {
-                servers.insert(crate::mono::bridge::MCP_SERVER.into(), server);
-                allowed.push(crate::mono::bridge::CLAUDE_ALLOWED_TOOLS);
+                servers.insert(crate::minion::bridge::MCP_SERVER.into(), server);
+                allowed.push(crate::minion::bridge::CLAUDE_ALLOWED_TOOLS);
             }
             let mut system = Vec::new();
-            if let Some(mono) = settings.mono.as_ref().filter(|_| !settings.text_only) {
-                system.push(crate::mono::instructions(&mono.mono, &mono.executable));
+            if let Some(minion) = settings.minion.as_ref().filter(|_| !settings.text_only) {
+                system.push(crate::minion::instructions(&minion.minion, &minion.executable));
             }
             if let Some(server) = visual_server {
                 servers.insert("monocode_visual".into(), server);
@@ -1908,10 +1908,10 @@ mod tests {
         assert_eq!(input["paths"], json!(["/repo/a.rs", "/repo/b.rs"]));
     }
     #[test]
-    fn a_monos_rules_reach_codex_as_developer_instructions() {
+    fn a_minions_rules_reach_codex_as_developer_instructions() {
         let mut p = protocol(Kind::Codex);
-        p.request.settings.mono = Some(crate::agent::MonoContext {
-            mono: crate::mono::Mono {
+        p.request.settings.minion = Some(crate::agent::MinionContext {
+            minion: crate::minion::Minion {
                 projects: vec!["/repo".into()],
                 ..Default::default()
             },

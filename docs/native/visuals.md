@@ -1,8 +1,8 @@
 # Native session visuals
 
-An agent can publish an interactive visual into an ordinary conversation. Ask for a chart, comparison, calculator, diagram, or 3D explanation. The visual stays in the transcript with the rest of the reply and remains usable after the turn ends. Monos use the same capability when running a conversation.
+An agent can publish an interactive visual into an ordinary conversation. Ask for a chart, comparison, calculator, diagram, or 3D explanation. The visual stays in the transcript with the rest of the reply and remains usable after the turn ends. Minions use the same capability when running a conversation.
 
-Use `/visualize` in an idle local desktop conversation to explicitly request a visual of the current topic, or `/visualize <request>` to specify what to show. Like `/stage` and `/commit`, this local command sends a dedicated agent prompt. It requires reading the visual reference, checking the program and publishing a native inline visual before replying, with the executable fallback available when MCP tools are unavailable. Wait for the current turn and queued messages to finish first. The command is unavailable in remote sessions and Mono chats; ask a Mono for a visual in ordinary language instead. A rejected command preserves the draft and attachments.
+Use `/visualize` in an idle local desktop conversation to explicitly request a visual of the current topic, or `/visualize <request>` to specify what to show. Like `/stage` and `/commit`, this local command sends a dedicated agent prompt. It requires reading the visual reference, checking the program and publishing a native inline visual before replying, with the executable fallback available when MCP tools are unavailable. Wait for the current turn and queued messages to finish first. The command is unavailable in remote sessions and Minion chats; ask a Minion for a visual in ordinary language instead. A rejected command preserves the draft and attachments.
 
 Interactive rendering is a native desktop feature. The phone transcript shows the visual's title with an instruction to open it on desktop.
 
@@ -32,13 +32,13 @@ monocode-gpui visual show --input /path/to/explanation.js --title "Explanation"
 
 Reading the reference and checking also work outside a running app. Showing requires the capability inherited by the agent of a live session. CLI discovery supplies the executable path; it is also available to the agent through `MONOCODE_VISUAL_EXECUTABLE`.
 
-## Mono documents
+## Minion documents
 
-A visual published in a Mono chat also appears in that Mono's **Documents** tab.
+A visual published in a Minion chat also appears in that Minion's **Documents** tab.
 Opening it uses the same native interactive reader. Reusing the visual's `id`
 updates the existing document while preserving its original creation time.
 
-The Mono app API accepts `artifacts.write` with `kind: "document"` for Markdown
+The Minion app API accepts `artifacts.write` with `kind: "document"` for Markdown
 documents. Creating an artifact with `kind: "html"` is rejected; publish
 interactive content through `visual_show` or the equivalent executable command.
 

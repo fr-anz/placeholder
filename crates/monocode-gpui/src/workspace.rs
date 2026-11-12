@@ -32,13 +32,16 @@ impl AppView {
     }
 }
 
-/// The title strip has one order, including conversations, app views and Monos.
+/// The title strip has one order, including conversations, app views and Minions.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum TitleTab {
     Session(i64),
     Search,
     App(AppView),
-    Mono {
+    /// `alias` keeps saved workspaces whose tabs carry the legacy
+    /// `"Mono"` variant tag loading after the Minion rename.
+    #[serde(alias = "Mono")]
+    Minion {
         id: String,
         project: String,
         worktree: String,
@@ -49,7 +52,7 @@ impl TitleTab {
     pub fn session(&self) -> Option<i64> {
         match self {
             Self::Session(id) => Some(*id),
-            Self::Mono { .. } | Self::Search | Self::App(_) => None,
+            Self::Minion { .. } | Self::Search | Self::App(_) => None,
         }
     }
 }
@@ -115,9 +118,11 @@ pub(crate) struct Workspace {
     /// Independent file panes use negative IDs in the layout tree. Their
     /// originating session supplies project/worktree scope and Add to Chat.
     pub review_owners: HashMap<i64, i64>,
-    /// Monos dragged into a split, by their negative pane IDs. Each keeps the
-    /// Mono tab it came from, which it becomes again once it stands alone.
-    pub mono_panes: HashMap<i64, TitleTab>,
+    /// Minions dragged into a split, by their negative pane IDs. Each keeps the
+    /// Minion tab it came from, which it becomes again once it stands alone.
+    /// The alias reads saved workspaces stored before the Minion rename.
+    #[serde(alias = "mono_panes")]
+    pub minion_panes: HashMap<i64, TitleTab>,
     /// Terminals pulled out of a dock into a split or onto the title strip,
     /// by their negative pane IDs. Like file panes, each borrows its owner
     /// session's project and worktree scope.
@@ -137,7 +142,9 @@ pub(crate) struct Workspace {
     /// The new single-sidebar layout can keep its full-height, square frame.
     pub new_layout_boxy: bool,
     pub project_rail_open: bool,
-    pub project_rail_monos_pinned: bool,
+    /// The alias reads saved workspaces stored before the Minion rename.
+    #[serde(alias = "project_rail_monos_pinned")]
+    pub project_rail_minions_pinned: bool,
     pub project_rail_width: f32,
     pub project_rail_pinned: HashSet<String>,
     pub project_rail_groups: Vec<ProjectRailGroup>,
@@ -342,7 +349,7 @@ impl Default for Workspace {
             reviews: Default::default(),
             review_owners: Default::default(),
             terminal_panes: Default::default(),
-            mono_panes: Default::default(),
+            minion_panes: Default::default(),
             layouts: Default::default(),
             focused: Default::default(),
             docks: Default::default(),
@@ -352,7 +359,7 @@ impl Default for Workspace {
             // Fresh installs start on the boxy frame; saved choices are kept.
             new_layout_boxy: true,
             project_rail_open: true,
-            project_rail_monos_pinned: false,
+            project_rail_minions_pinned: false,
             project_rail_width: 220.,
             project_rail_pinned: HashSet::new(),
             project_rail_groups: Vec::new(),
@@ -384,7 +391,7 @@ impl Workspace {
                 .and_then(|s| serde_json::from_str(s).ok())
         };
         if let Some(value) = read("monocode.railMonosPinned") {
-            self.project_rail_monos_pinned = value.as_bool().unwrap_or(false);
+            self.project_rail_minions_pinned = value.as_bool().unwrap_or(false);
         }
         if self.classic_sidebar_tab_order.is_empty()
             && let Some(value) = read("monocode.sidebarTabOrder")
@@ -482,15 +489,15 @@ impl Workspace {
         });
         known.extend(state.review_owners.keys().copied());
         let owners = &state.review_owners;
-        state.mono_panes.retain(|id, mono| {
-            *id < 0 && !owners.contains_key(id) && matches!(mono, TitleTab::Mono { .. })
+        state.minion_panes.retain(|id, minion| {
+            *id < 0 && !owners.contains_key(id) && matches!(minion, TitleTab::Minion { .. })
         });
-        known.extend(state.mono_panes.keys().copied());
-        let (owners, monos) = (&state.review_owners, &state.mono_panes);
+        known.extend(state.minion_panes.keys().copied());
+        let (owners, minions) = (&state.review_owners, &state.minion_panes);
         state.terminal_panes.retain(|id, pane| {
             *id < 0
                 && !owners.contains_key(id)
-                && !monos.contains_key(id)
+                && !minions.contains_key(id)
                 && sessions.iter().any(|(known, _)| *known == pane.owner)
         });
         known.extend(state.terminal_panes.keys().copied());
@@ -526,7 +533,7 @@ impl Workspace {
                 state.layouts.insert(key, layout);
             }
         }
-        state.settle_mono_panes();
+        state.settle_minion_panes();
         state.prune_terminal_panes();
         state.normalize_title_order();
         if state
@@ -727,12 +734,12 @@ impl Workspace {
     pub fn is_detached_pane(&self, id: i64) -> bool {
         self.review_owners.contains_key(&id) || self.terminal_panes.contains_key(&id)
     }
-    /// File, Mono and terminal panes share the negative IDs below every
+    /// File, Minion and terminal panes share the negative IDs below every
     /// session.
     pub fn next_pane_id(&self) -> i64 {
         self.review_owners
             .keys()
-            .chain(self.mono_panes.keys())
+            .chain(self.minion_panes.keys())
             .chain(self.terminal_panes.keys())
             .copied()
             .min()
@@ -740,22 +747,22 @@ impl Workspace {
             .min(0)
             - 1
     }
-    pub fn mono_pane(&self, mono: &str) -> Option<i64> {
-        self.mono_panes.iter().find_map(|(pane, tab)| {
-            matches!(tab, TitleTab::Mono { id, .. } if id == mono).then_some(*pane)
+    pub fn minion_pane(&self, minion: &str) -> Option<i64> {
+        self.minion_panes.iter().find_map(|(pane, tab)| {
+            matches!(tab, TitleTab::Minion { id, .. } if id == minion).then_some(*pane)
         })
     }
     /// The pane that scopes a tab to a project: its focus, unless that is a
-    /// Mono, which works across projects.
+    /// Minion, which works across projects.
     pub fn scope_pane(&self, tab: i64) -> i64 {
         let focus = self.tab_focus(tab);
-        if !self.mono_panes.contains_key(&focus) {
+        if !self.minion_panes.contains_key(&focus) {
             return focus;
         }
         self.layout(tab)
             .leaf_ids()
             .into_iter()
-            .find(|id| !self.mono_panes.contains_key(id))
+            .find(|id| !self.minion_panes.contains_key(id))
             .unwrap_or(focus)
     }
     /// Focus a session, opening it as its own tab unless a tab holds it.
@@ -839,15 +846,15 @@ impl Workspace {
         };
         let focus = self.focused.remove(&tab);
         self.layouts.remove(&tab);
-        // A tab is keyed by a conversation when it holds one, never a Mono.
-        let key = if layout.contains(tab) && !self.mono_panes.contains_key(&tab) {
+        // A tab is keyed by a conversation when it holds one, never a Minion.
+        let key = if layout.contains(tab) && !self.minion_panes.contains_key(&tab) {
             tab
         } else {
             let leaves = layout.leaf_ids();
             leaves
                 .iter()
                 .copied()
-                .find(|id| !self.mono_panes.contains_key(id))
+                .find(|id| !self.minion_panes.contains_key(id))
                 .unwrap_or(leaves[0])
         };
         self.tabs[ix] = key;
@@ -968,21 +975,21 @@ impl Workspace {
         self.focused.insert(key, focus);
         self.active = Some(focus);
     }
-    /// A Mono tab dropped on a pane edge leaves the strip for the split.
-    pub fn place_mono(&mut self, mono: TitleTab, target: i64, edge: Edge) -> Option<i64> {
-        if !matches!(mono, TitleTab::Mono { .. }) || self.tab_of(target).is_none() {
+    /// A Minion tab dropped on a pane edge leaves the strip for the split.
+    pub fn place_minion(&mut self, minion: TitleTab, target: i64, edge: Edge) -> Option<i64> {
+        if !matches!(minion, TitleTab::Minion { .. }) || self.tab_of(target).is_none() {
             return None;
         }
         let pane = self.next_pane_id();
-        self.title_order.retain(|entry| *entry != mono);
-        self.scope_focus.retain(|_, entry| *entry != mono);
-        self.mono_panes.insert(pane, mono);
+        self.title_order.retain(|entry| *entry != minion);
+        self.scope_focus.retain(|_, entry| *entry != minion);
+        self.minion_panes.insert(pane, minion);
         self.place(pane, target, edge);
         Some(pane)
     }
-    /// The visible Mono becomes a split's first pane, its tab keeping its
+    /// The visible Minion becomes a split's first pane, its tab keeping its
     /// slot, so a tab or pane can be dropped beside it.
-    pub fn mono_tab_pane(&mut self, mono: TitleTab) -> i64 {
+    pub fn minion_tab_pane(&mut self, minion: TitleTab) -> i64 {
         let pane = self.next_pane_id();
         self.tabs.push(pane);
         for entry in self
@@ -991,33 +998,33 @@ impl Workspace {
             .chain(self.scope_focus.values_mut())
             .chain(self.pinned_tabs.iter_mut())
         {
-            if *entry == mono {
+            if *entry == minion {
                 *entry = TitleTab::Session(pane);
             }
         }
         if !self.title_order.contains(&TitleTab::Session(pane)) {
             self.title_order.push(TitleTab::Session(pane));
         }
-        self.mono_panes.insert(pane, mono);
+        self.minion_panes.insert(pane, minion);
         self.active = Some(pane);
         pane
     }
-    /// A Mono pane left alone in its tab becomes its Mono tab again, in the
-    /// same slot; one no tab holds is forgotten. Returns the Mono when it
+    /// A Minion pane left alone in its tab becomes its Minion tab again, in the
+    /// same slot; one no tab holds is forgotten. Returns the Minion when it
     /// had focus, for the caller to show.
-    pub fn settle_mono_panes(&mut self) -> Option<TitleTab> {
+    pub fn settle_minion_panes(&mut self) -> Option<TitleTab> {
         let mut focused = None;
-        let panes: Vec<_> = self.mono_panes.keys().copied().collect();
+        let panes: Vec<_> = self.minion_panes.keys().copied().collect();
         for pane in panes {
             match self.tab_of(pane) {
                 Some(tab) if self.layout(tab).is_split() => continue,
                 Some(tab) => {
-                    let mono = self.mono_panes[&pane].clone();
+                    let minion = self.minion_panes[&pane].clone();
                     self.tabs.retain(|t| *t != tab);
                     self.tab_workspaces.remove(&tab);
                     self.layouts.remove(&tab);
                     self.focused.remove(&tab);
-                    let present = self.title_order.contains(&mono);
+                    let present = self.title_order.contains(&minion);
                     self.title_order
                         .retain(|entry| !(present && *entry == TitleTab::Session(tab)));
                     for entry in self
@@ -1027,17 +1034,17 @@ impl Workspace {
                         .chain(self.pinned_tabs.iter_mut())
                     {
                         if *entry == TitleTab::Session(tab) {
-                            *entry = mono.clone();
+                            *entry = minion.clone();
                         }
                     }
                     if self.active == Some(pane) {
                         self.active = None;
-                        focused = Some(mono);
+                        focused = Some(minion);
                     }
                 }
                 None => {}
             }
-            self.mono_panes.remove(&pane);
+            self.minion_panes.remove(&pane);
         }
         focused
     }
@@ -1328,31 +1335,31 @@ mod tests {
         }
         assert_eq!(h.back.len(), 50);
     }
-    fn mono(id: &str) -> TitleTab {
-        TitleTab::Mono {
+    fn minion(id: &str) -> TitleTab {
+        TitleTab::Minion {
             id: id.into(),
             project: "/work".into(),
             worktree: "/work".into(),
         }
     }
     #[test]
-    fn a_mono_joins_a_split_and_becomes_its_tab_again_when_alone() {
+    fn a_minion_joins_a_split_and_becomes_its_tab_again_when_alone() {
         let mut s = Workspace::default();
         s.open(1);
-        s.title_order.push(mono("m"));
+        s.title_order.push(minion("m"));
         s.open(2);
-        let pane = s.place_mono(mono("m"), 1, Edge::Right).unwrap();
+        let pane = s.place_minion(minion("m"), 1, Edge::Right).unwrap();
         assert!(pane < 0);
         assert_eq!(s.layout(1).leaf_ids(), vec![1, pane]);
         assert_eq!(s.active, Some(pane));
-        assert_eq!(s.scope_pane(1), 1, "a Mono never scopes its tab");
+        assert_eq!(s.scope_pane(1), 1, "a Minion never scopes its tab");
         assert_eq!(
             s.title_order,
             vec![TitleTab::Session(1), TitleTab::Session(2)]
         );
-        assert_eq!(s.mono_pane("m"), Some(pane));
-        assert_eq!(s.settle_mono_panes(), None);
-        // Restarting keeps the Mono in its split.
+        assert_eq!(s.minion_pane("m"), Some(pane));
+        assert_eq!(s.settle_minion_panes(), None);
+        // Restarting keeps the Minion in its split.
         let saved = serde_json::to_string(&s).unwrap();
         let restored = Workspace::restore(
             Some(&saved),
@@ -1360,23 +1367,23 @@ mod tests {
             "/work",
         );
         assert_eq!(restored.layout(1).leaf_ids(), vec![1, pane]);
-        assert_eq!(restored.mono_pane("m"), Some(pane));
-        // Detached to the strip, it is the Mono tab again in the same slot.
+        assert_eq!(restored.minion_pane("m"), Some(pane));
+        // Detached to the strip, it is the Minion tab again in the same slot.
         s.detach(pane, 1);
-        assert_eq!(s.settle_mono_panes(), Some(mono("m")));
+        assert_eq!(s.settle_minion_panes(), Some(minion("m")));
         assert_eq!(
             s.title_order,
-            vec![TitleTab::Session(1), mono("m"), TitleTab::Session(2)]
+            vec![TitleTab::Session(1), minion("m"), TitleTab::Session(2)]
         );
-        assert!(s.mono_panes.is_empty());
+        assert!(s.minion_panes.is_empty());
         assert_eq!(s.tabs, vec![1, 2]);
     }
     #[test]
-    fn a_tab_dropped_on_the_visible_mono_splits_beside_it() {
+    fn a_tab_dropped_on_the_visible_minion_splits_beside_it() {
         let mut s = Workspace::default();
         s.open(1);
-        s.title_order.push(mono("m"));
-        let pane = s.mono_tab_pane(mono("m"));
+        s.title_order.push(minion("m"));
+        let pane = s.minion_tab_pane(minion("m"));
         assert_eq!(
             s.title_order,
             vec![TitleTab::Session(1), TitleTab::Session(pane)]
@@ -1385,18 +1392,18 @@ mod tests {
         assert_eq!(s.tabs, vec![1], "the conversation keys the tab");
         assert_eq!(s.layout(1).leaf_ids(), vec![1, pane]);
         assert_eq!(s.title_order, vec![TitleTab::Session(1)]);
-        assert_eq!(s.settle_mono_panes(), None);
-        // Closing the conversation's pane leaves the Mono on its own.
+        assert_eq!(s.settle_minion_panes(), None);
+        // Closing the conversation's pane leaves the Minion on its own.
         assert!(s.close_pane(1));
-        assert_eq!(s.settle_mono_panes(), Some(mono("m")));
-        assert_eq!(s.title_order, vec![mono("m")]);
+        assert_eq!(s.settle_minion_panes(), Some(minion("m")));
+        assert_eq!(s.title_order, vec![minion("m")]);
         assert!(s.tabs.is_empty());
-        // A closed tab forgets its Mono pane.
+        // A closed tab forgets its Minion pane.
         s.open(1);
-        s.place_mono(mono("m"), 1, Edge::Bottom);
+        s.place_minion(minion("m"), 1, Edge::Bottom);
         s.close(1);
-        assert_eq!(s.settle_mono_panes(), None);
-        assert!(s.mono_panes.is_empty());
+        assert_eq!(s.settle_minion_panes(), None);
+        assert!(s.minion_panes.is_empty());
     }
     #[test]
     fn close_and_reopen_keep_session_identity() {
@@ -1600,7 +1607,7 @@ mod tests {
         .to_string();
         let sessions = vec![
             (1, "/code/app".into()),
-            (2, "/tmp/internal-mono-chat".into()),
+            (2, "/tmp/internal-minion-chat".into()),
             (3, "/private/var/folders/temporary".into()),
         ];
         let restored = Workspace::restore(Some(&saved), &sessions, "/code/app");

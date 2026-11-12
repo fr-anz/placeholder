@@ -106,7 +106,7 @@ impl Shell {
     pub(super) fn tab_menu_target(&self, tab: &TitleTab) -> MenuTarget {
         match tab {
             TitleTab::Session(id) => MenuTarget::Tab(*id),
-            TitleTab::Mono { id, .. } => MenuTarget::MonoTab(id.clone()),
+            TitleTab::Minion { id, .. } => MenuTarget::MinionTab(id.clone()),
             TitleTab::Search => MenuTarget::SearchTab,
             TitleTab::App(view) => MenuTarget::AppTab(*view),
         }
@@ -137,19 +137,19 @@ impl Shell {
                 };
                 (face, mark, copy.headline.clone().into())
             }
-            TitleTab::Mono { id, .. } => {
-                let mono = self
-                    .monos
+            TitleTab::Minion { id, .. } => {
+                let minion = self
+                    .minions
                     .as_ref()
                     .and_then(|m| m.read(cx).roster.get(id).cloned());
-                match mono {
-                    Some(mono) => (
+                match minion {
+                    Some(minion) => (
                         Face::Neutral,
-                        crate::monos::avatar::avatar(&mono.mascot, mono.color, "idle", 14., true)
+                        crate::minions::avatar::avatar(&minion.mascot, minion.color, "idle", 14., true)
                             .into_any_element(),
-                        mono.label().into(),
+                        minion.label().into(),
                     ),
-                    None => (Face::Neutral, div().into_any_element(), "Mono".into()),
+                    None => (Face::Neutral, div().into_any_element(), "Minion".into()),
                 }
             }
             TitleTab::Search => (Face::Neutral, neutral("search"), "Search".into()),

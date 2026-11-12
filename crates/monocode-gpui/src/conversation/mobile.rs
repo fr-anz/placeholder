@@ -582,7 +582,7 @@ mod usage_tests {
     }
 
     #[gpui::test]
-    fn mobile_controls_persist_the_desktop_preference_and_use_its_mono_resume_and_scheduler(
+    fn mobile_controls_persist_the_desktop_preference_and_use_its_minion_resume_and_scheduler(
         cx: &mut gpui::TestAppContext,
     ) {
         let store = Arc::new(std::sync::Mutex::new(
@@ -602,8 +602,8 @@ mod usage_tests {
         });
         view.update(cx, |v, cx| {
             v.loaded = true;
-            v.settings.mono = Some(monocode_core::agent::MonoContext {
-                mono: Default::default(),
+            v.settings.minion = Some(monocode_core::agent::MinionContext {
+                minion: Default::default(),
                 root: "/fixture".into(),
                 executable: "/fixture/binary".into(),
             });

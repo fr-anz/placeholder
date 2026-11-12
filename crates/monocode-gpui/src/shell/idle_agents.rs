@@ -5,7 +5,7 @@ impl Shell {
     pub(crate) fn keep_visible_idle_agents(&self, cx: &App) {
         let mut ids = Vec::new();
         if !self.app_view_open()
-            && !self.mono_active(cx)
+            && !self.minion_active(cx)
             && let Some(tab) = self.workspace.active_tab()
         {
             ids.extend(
@@ -19,8 +19,8 @@ impl Shell {
         if let Some(preview) = &self.session_preview {
             ids.push(preview.id);
         }
-        if let Some(monos) = &self.monos {
-            ids.extend(monos.read(cx).visible_idle_sessions(cx));
+        if let Some(minions) = &self.minions {
+            ids.extend(minions.read(cx).visible_idle_sessions(cx));
         }
         monocode_core::provider::keep_idle_agents(ids);
     }

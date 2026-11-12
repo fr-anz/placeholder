@@ -307,9 +307,9 @@ pub(super) fn key(request: &Request) -> String {
         request.settings.environment,
         request
             .settings
-            .mono
+            .minion
             .as_ref()
-            .map(|mono| (&mono.root, &mono.mono.id)),
+            .map(|minion| (&minion.root, &minion.minion.id)),
         request.settings.disable_claude_hooks,
         crate::accounts::claude_entrypoint()
     ])
@@ -565,7 +565,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
-    fn parked_keys_separate_mono_identity_and_private_storage_from_regular_sessions() {
+    fn parked_keys_separate_minion_identity_and_private_storage_from_regular_sessions() {
         let mut request = Request {
             kind: Kind::Codex,
             binary: PathBuf::from("codex"),
@@ -576,9 +576,9 @@ mod tests {
             settings: Settings::default(),
         };
         let regular = key(&request);
-        request.settings.mono = Some(crate::agent::MonoContext {
-            mono: crate::mono::Mono {
-                id: "first-mono".into(),
+        request.settings.minion = Some(crate::agent::MinionContext {
+            minion: crate::minion::Minion {
+                id: "first-minion".into(),
                 ..Default::default()
             },
             root: PathBuf::from("/desktop/monos"),
@@ -586,10 +586,10 @@ mod tests {
         });
         let first = key(&request);
         assert_ne!(regular, first);
-        request.settings.mono.as_mut().unwrap().mono.id = "other-mono".into();
+        request.settings.minion.as_mut().unwrap().minion.id = "other-minion".into();
         assert_ne!(first, key(&request));
-        request.settings.mono.as_mut().unwrap().mono.id = "first-mono".into();
-        request.settings.mono.as_mut().unwrap().root = PathBuf::from("/isolated/monos");
+        request.settings.minion.as_mut().unwrap().minion.id = "first-minion".into();
+        request.settings.minion.as_mut().unwrap().root = PathBuf::from("/isolated/monos");
         assert_ne!(first, key(&request));
     }
 

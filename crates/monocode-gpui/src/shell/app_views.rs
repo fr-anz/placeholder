@@ -191,8 +191,8 @@ impl Shell {
         if self.settings.is_some() {
             self.close_settings(window, cx);
         }
-        if let Some(monos) = self.monos.clone() {
-            monos.update(cx, |monos, cx| monos.close(cx));
+        if let Some(minions) = self.minions.clone() {
+            minions.update(cx, |minions, cx| minions.close(cx));
         }
         self.navigation_revision += 1;
         self.review_focused = false;

@@ -170,7 +170,7 @@ impl Conversation {
     pub(crate) fn refresh_git_actions(&mut self, cx: &mut Context<Self>) {
         self.session_edits_generation = self.session_edits_generation.wrapping_add(1);
         let generation = self.session_edits_generation;
-        if !self.history_loaded() || self.busy || self.is_remote() || self.settings.mono.is_some() {
+        if !self.history_loaded() || self.busy || self.is_remote() || self.settings.minion.is_some() {
             return;
         }
         if self.session_edits.is_empty() || self.settings.worktree_removed {
@@ -247,7 +247,7 @@ impl Conversation {
             && !self.preparing_worktree
             && self.follow_ups.state.messages.is_empty()
             && !self.is_remote()
-            && self.settings.mono.is_none()
+            && self.settings.minion.is_none()
             && !self.settings.worktree_removed
     }
     pub(super) fn git_action_menu_items(&self, cx: &gpui::App) -> Vec<MenuItem> {

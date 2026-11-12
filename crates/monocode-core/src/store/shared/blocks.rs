@@ -158,8 +158,8 @@ fn project_content(block: &Value) -> Result<Vec<Row>, String> {
             return Ok(Vec::new());
         }
         t.begin(match role {
-            "user" if block["internal"] == true => "mono-system",
-            "user" | "assistant" | "reasoning" | "error" | "mono-card" | "visual" => role,
+            "user" if block["internal"] == true => crate::transcript::LEGACY_MONO_SYSTEM,
+            "user" | "assistant" | "reasoning" | "error" | crate::transcript::LEGACY_MONO_CARD | "visual" => role,
             "system" if block["notice"] == "error" => "error",
             "plan" | "tasks" => "assistant",
             _ => "system",
@@ -197,27 +197,29 @@ fn project_block(block: &Value) -> Result<Vec<Row>, String> {
             &block["attachments"],
         ));
     }
-    for card in crate::mono::work::document_cards(block) {
-        rows.push(metadata_row("mono-document", &card));
+    // Metadata rows keep the desktop's legacy role names; the shared database
+    // and the mobile protocol read those exact strings.
+    for card in crate::minion::work::document_cards(block) {
+        rows.push(metadata_row(crate::transcript::LEGACY_MONO_DOCUMENT, &card));
     }
     if let Some(id) = block["noteCard"]["id"].as_str() {
-        rows.push(metadata_row("mono-note", &json!({"id":format!("note:{id}"),"type":"document","documentId":id,"title":block["noteCard"]["title"],"kind":"document","note":true})));
+        rows.push(metadata_row(crate::transcript::LEGACY_MONO_NOTE, &json!({"id":format!("note:{id}"),"type":"document","documentId":id,"title":block["noteCard"]["title"],"kind":"document","note":true})));
     }
-    for launch in crate::mono::work::block_launches(std::slice::from_ref(block))
+    for launch in crate::minion::work::block_launches(std::slice::from_ref(block))
         .into_iter()
         .flatten()
     {
         let mut launch = launch;
-        launch["sessionId"] = json!(crate::mono::work::session_handle(&launch["sessionId"]));
-        rows.push(metadata_row("mono-launch", &launch));
+        launch["sessionId"] = json!(crate::minion::work::session_handle(&launch["sessionId"]));
+        rows.push(metadata_row(crate::transcript::LEGACY_MONO_LAUNCH, &launch));
     }
     if block["monoCard"].is_object() {
         let mut card = block["monoCard"].clone();
         card["id"] = block["id"].clone();
         if card["type"] == "session" {
-            card["sessionId"] = json!(crate::mono::work::session_handle(&card["sessionId"]));
+            card["sessionId"] = json!(crate::minion::work::session_handle(&card["sessionId"]));
         }
-        let mut row = metadata_row("mono-card", &card);
+        let mut row = metadata_row(crate::transcript::LEGACY_MONO_CARD, &card);
         row.sent_at = block["sentAt"].as_u64().or(block["startedAt"].as_u64());
         rows.push(row);
     }
@@ -233,7 +235,7 @@ pub(crate) fn project(blocks: &[Value]) -> Result<Vec<Row>, String> {
 fn update(old: Option<&Value>, rows: &[Row]) -> Result<Value, String> {
     let mut block = old
         .cloned()
-        .unwrap_or_else(|| json!({"id":format!("gpui-{}",crate::mono::new_id())}));
+        .unwrap_or_else(|| json!({"id":format!("gpui-{}",crate::minion::new_id())}));
     let role = rows[0].role.as_str();
     let text = rows.iter().map(|r| r.text.as_str()).collect::<String>();
     // Reuse the complete original object for unchanged display rows. In
@@ -254,7 +256,7 @@ fn update(old: Option<&Value>, rows: &[Row]) -> Result<Value, String> {
         if old.is_none() {
             block["sentAt"] = json!(rows[0].sent_at);
         }
-    } else if role == "mono-card" {
+    } else if role == crate::transcript::LEGACY_MONO_CARD {
         let mut card: Value = super::parse(&text)?;
         if old.is_none() && card["id"].is_string() {
             block["id"] = card["id"].clone();
@@ -413,14 +415,14 @@ fn update(old: Option<&Value>, rows: &[Row]) -> Result<Value, String> {
         // Plans and task lists keep their desktop role and associated metadata.
         if old.is_none() {
             block["role"] = json!(match role {
-                "mono-system" => "user",
+                crate::transcript::LEGACY_MONO_SYSTEM => "user",
                 "error" => "system",
                 _ => role,
             });
             if role == "error" {
                 block["notice"] = json!("error");
             }
-            if role == "mono-system" {
+            if role == crate::transcript::LEGACY_MONO_SYSTEM {
                 block["internal"] = json!(true);
             }
         }
@@ -477,7 +479,7 @@ pub(super) fn merge(blocks: &[Value], start: usize, delta: &[Row]) -> Result<Vec
             )?;
             let original = &displayed[local..end];
             if group != original {
-                if group[0].role == "mono-card" && value["monoCard"].is_object() {
+                if group[0].role == crate::transcript::LEGACY_MONO_CARD && value["monoCard"].is_object() {
                     let card: Value =
                         super::parse(&group.iter().map(|r| r.text.as_str()).collect::<String>())?;
                     let external = value["monoCard"]["sessionId"].clone();
@@ -490,9 +492,9 @@ pub(super) fn merge(blocks: &[Value], start: usize, delta: &[Row]) -> Result<Vec
                     }
                 } else if !matches!(
                     group[0].role.as_str(),
-                    "mono-document"
-                        | "mono-note"
-                        | "mono-launch"
+                    crate::transcript::LEGACY_MONO_DOCUMENT
+                        | crate::transcript::LEGACY_MONO_NOTE
+                        | crate::transcript::LEGACY_MONO_LAUNCH
                         | crate::transcript::attachments::ROLE
                 ) {
                     value = update(Some(&value), group)?;

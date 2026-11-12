@@ -7,5 +7,5 @@ pub(crate) const APP_NAME: &str = "Placeholder";
 pub(crate) const DATA_DIR_NAME: &str = "Placeholder";
 /// Wayland app_id / X11 WM_CLASS base for the main window.
 pub(crate) const APP_ID: &str = "io.github.fr_anz.placeholder";
-pub(crate) const MONO_CHAT_APP_ID: &str = "io.github.fr_anz.placeholder.mono-chat";
+pub(crate) const MINION_CHAT_APP_ID: &str = "io.github.fr_anz.placeholder.minion-chat";
 pub(crate) const QUICK_COMPOSER_APP_ID: &str = "io.github.fr_anz.placeholder.quick-composer";

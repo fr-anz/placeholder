@@ -1,4 +1,4 @@
-//! An indexed Mono is read like the desktop app pages it: the newest turns
+//! An indexed Minion is read like the desktop app pages it: the newest turns
 //! first, older turns only on request. Row indices count from a sticky window
 //! start, so saves, turn receipts and edits never read or rewrite older blocks.
 use super::*;
@@ -18,14 +18,15 @@ pub struct HistoryPage {
 
 impl Store {
     pub(super) fn shared_indexed(&self, original: &str) -> Result<bool, String> {
-        Ok(has_table(&self.conn, "mono_transcripts")?
+        Ok(has_table(&self.conn, crate::store::LEGACY_TRANSCRIPTS_TABLE)?
             && sql(self.conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM mono_transcripts WHERE session_id=?1)",
+                &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE session_id=?1)",
+                    table = crate::store::LEGACY_TRANSCRIPTS_TABLE),
                 [original],
                 |row| row.get::<_, bool>(0),
             ))?)
     }
-    /// The first block sequence of an indexed Mono's window, chosen once per
+    /// The first block sequence of an indexed Minion's window, chosen once per
     /// store so that every row index handed out for it shares one origin.
     /// None for a history stored as one blob, which is always read whole.
     pub(super) fn shared_window(&self, id: i64, original: &str) -> Result<Option<i64>, String> {
@@ -36,11 +37,12 @@ impl Store {
         if let Some(from) = windows.borrow().get(&id) {
             return Ok(Some(*from));
         }
-        let from = if has_table(&self.conn, "mono_turns")? {
+        let from = if has_table(&self.conn, crate::store::LEGACY_TURNS_TABLE)? {
             sql(self
                 .conn
                 .query_row(
-                    "SELECT seq FROM mono_turns WHERE session_id=?1 ORDER BY seq DESC LIMIT 1 OFFSET ?2",
+                    &format!("SELECT seq FROM {table} WHERE session_id=?1 ORDER BY seq DESC LIMIT 1 OFFSET ?2",
+                        table = crate::store::LEGACY_TURNS_TABLE),
                     params![original, PAGE_TURNS as i64 - 1],
                     |row| row.get::<_, i64>(0),
                 )
@@ -58,9 +60,10 @@ impl Store {
         from: i64,
         before: i64,
     ) -> Result<Vec<Value>, String> {
-        let mut query = sql(self.conn.prepare(
-            "SELECT block_json FROM mono_blocks WHERE session_id=?1 AND seq>=?2 AND seq<?3 ORDER BY seq",
-        ))?;
+        let mut query = sql(self.conn.prepare(&format!(
+            "SELECT block_json FROM {blocks} WHERE session_id=?1 AND seq>=?2 AND seq<?3 ORDER BY seq",
+            blocks = crate::store::LEGACY_BLOCKS_TABLE,
+        )))?;
         let mut records = sql(query.query(params![original, from, before]))?;
         let mut result = Vec::new();
         while let Some(record) = sql(records.next())? {
@@ -85,7 +88,8 @@ impl Store {
             return Ok(None);
         };
         let older = sql(self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM mono_blocks WHERE session_id=?1 AND seq<?2)",
+            &format!("SELECT EXISTS(SELECT 1 FROM {blocks} WHERE session_id=?1 AND seq<?2)",
+                blocks = crate::store::LEGACY_BLOCKS_TABLE),
             params![original, from],
             |row| row.get::<_, bool>(0),
         ))?;
@@ -106,10 +110,11 @@ impl Store {
         }
         let mut start = 0;
         let mut more = false;
-        if !all && has_table(&self.conn, "mono_turns")? {
-            let mut query = sql(self.conn.prepare(
-                "SELECT seq FROM mono_turns WHERE session_id=?1 AND seq<?2 ORDER BY seq DESC LIMIT ?3",
-            ))?;
+        if !all && has_table(&self.conn, crate::store::LEGACY_TURNS_TABLE)? {
+            let mut query = sql(self.conn.prepare(&format!(
+                "SELECT seq FROM {turns} WHERE session_id=?1 AND seq<?2 ORDER BY seq DESC LIMIT ?3",
+                turns = crate::store::LEGACY_TURNS_TABLE,
+            )))?;
             let starts = sql(sql(query
                 .query_map(params![original, before, PAGE_TURNS as i64 + 1], |row| {
                     row.get::<_, i64>(0)
@@ -138,8 +143,9 @@ impl Store {
                 .any(|b| b["appRequestId"].as_str() == Some(message)));
         }
         sql(self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM mono_blocks WHERE session_id=?1 AND is_user=1
+            &format!("SELECT EXISTS(SELECT 1 FROM {blocks} WHERE session_id=?1 AND is_user=1
              AND json_extract(block_json,'$.appRequestId')=?2)",
+                blocks = crate::store::LEGACY_BLOCKS_TABLE),
             params![original, message],
             |row| row.get::<_, bool>(0),
         ))

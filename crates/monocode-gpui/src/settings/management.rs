@@ -10,7 +10,7 @@ pub(super) enum Target {
     Skill,
     Worktree,
     DeleteTree(data::Tree),
-    ResetMono(super::MonoSetting),
+    ResetMinion(super::MinionSetting),
     /// Edit a worker role by id, or add one with `None`.
     Role(Option<String>),
 }
@@ -93,7 +93,7 @@ impl SettingsView {
         let previous = window.focused(cx);
         if matches!(
             target,
-            Target::Cli(_) | Target::DeleteTree(_) | Target::ResetMono(_)
+            Target::Cli(_) | Target::DeleteTree(_) | Target::ResetMinion(_)
         ) {
             window.focus(&self.focus, cx);
         } else {
@@ -265,8 +265,8 @@ impl SettingsView {
             cx.notify();
             return;
         }
-        if let Target::ResetMono(mono) = target {
-            cx.emit(SettingsEvent::ResetMono(mono.id));
+        if let Target::ResetMinion(minion) = target {
+            cx.emit(SettingsEvent::ResetMinion(minion.id));
             cx.notify();
             return;
         }
@@ -327,10 +327,10 @@ impl SettingsView {
         let inspection = e.inspection.clone();
         let mut rows = Vec::new();
         match &target {
-            Target::ResetMono(mono) => {
-                let default = monocode_core::mono::Mono {
+            Target::ResetMinion(minion) => {
+                let default = monocode_core::minion::Minion {
                     name: String::new(),
-                    mascot: mono.mascot.clone(),
+                    mascot: minion.mascot.clone(),
                     ..Default::default()
                 }
                 .label();
@@ -772,11 +772,11 @@ impl SettingsView {
             Target::Worktree => "Create worktree",
             Target::Role(None) => "Add role",
             Target::Role(Some(_)) => "Save role",
-            Target::ResetMono(_) => {
+            Target::ResetMinion(_) => {
                 if busy {
                     "Resetting…"
                 } else {
-                    "Reset Mono"
+                    "Reset Minion"
                 }
             }
             Target::DeleteTree(_) => {
@@ -797,7 +797,7 @@ impl SettingsView {
             )
             .child(
                 crate::modal::disabled(
-                    if matches!(target, Target::DeleteTree(_) | Target::ResetMono(_)) {
+                    if matches!(target, Target::DeleteTree(_) | Target::ResetMinion(_)) {
                         crate::modal::danger_button("submit-management", label)
                     } else {
                         crate::modal::primary_button("submit-management", label)
@@ -828,7 +828,7 @@ impl SettingsView {
             Target::Mcp => "Add MCP server".into(),
             Target::Worktree => "Create worktree".into(),
             Target::DeleteTree(_) => "Delete worktree?".into(),
-            Target::ResetMono(ref mono) => format!("Reset {} to its defaults?", mono.name),
+            Target::ResetMinion(ref minion) => format!("Reset {} to its defaults?", minion.name),
             Target::Role(None) => "New worker role".into(),
             Target::Role(Some(_)) => "Edit worker role".into(),
             _ => String::new(),

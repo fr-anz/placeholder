@@ -490,7 +490,7 @@ mod tests {
         fixture(cx, false)
     }
 
-    fn fixture(cx: &mut TestAppContext, mono: bool) -> gpui::WindowHandle<Fixture> {
+    fn fixture(cx: &mut TestAppContext, minion: bool) -> gpui::WindowHandle<Fixture> {
         let window = cx.update(|cx| {
             cx.open_window(
                 WindowOptions {
@@ -503,8 +503,8 @@ mod tests {
                 |_, cx| {
                     let transcript = cx.new(|cx| {
                         let mut view = TranscriptView::new();
-                        if mono {
-                            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                        if minion {
+                            view.minion_mode("cat", 0xe86b5f, "MinionCat");
                         }
                         view.visible = false;
                         view.streaming = true;
@@ -729,12 +729,12 @@ mod tests {
     }
 
     #[gpui::test]
-    fn mono_prompt_widths_survive_streaming_replies_and_refresh_with_attachments(
+    fn minion_prompt_widths_survive_streaming_replies_and_refresh_with_attachments(
         cx: &mut TestAppContext,
     ) {
         let window = fixture(cx, true);
         probe(window, cx, |view, window, cx| {
-            assert!(view.mono && view.chat_layout);
+            assert!(view.minion && view.chat_layout);
             view.visible = false;
             let mut transcript = monocode_core::transcript::Transcript::default();
             let prompt = transcript.begin("user");
@@ -755,7 +755,7 @@ mod tests {
                 for _ in 0..3 {
                     view.begin_measurements(window, cx);
                 }
-                // Mono rebuilds the whole group, from the prompt that opens it.
+                // Minion rebuilds the whole group, from the prompt that opens it.
                 view.patch(
                     assistant,
                     vec![row("assistant", &format!("Answer {i}"))],

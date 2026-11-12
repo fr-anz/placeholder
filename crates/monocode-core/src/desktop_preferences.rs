@@ -80,7 +80,7 @@ impl DesktopPreferences {
             let merged = merge_projects(baseline.get("projects"), &current, &source);
             object.insert("projects".into(), merged.clone());
             next.insert("projects".into(), source);
-            // A stale sidecar selection may point at an internal Mono chat.
+            // A stale sidecar selection may point at an internal Minion chat.
             if !merged
                 .as_array()
                 .is_some_and(|paths| paths.iter().any(|p| Some(p) == object.get("project")))
@@ -593,7 +593,7 @@ mod tests {
                 json!({"/code/agent-terminal":"/logos/saved.png"}),
             ),
         ]);
-        let mut workspace = json!({"projects":["/tmp/mono","/code/agent-terminal"],"project":"/tmp/mono","active":123,
+        let mut workspace = json!({"projects":["/tmp/minion","/code/agent-terminal"],"project":"/tmp/minion","active":123,
             "project_appearance":{"/code/agent-terminal":{"name":"stale","background":{"path":"/background.png"}}}});
         preferences.apply_workspace(&mut workspace);
         assert_eq!(

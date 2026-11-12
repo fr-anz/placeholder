@@ -16,8 +16,8 @@ mod image_lightbox_tests;
 mod layout;
 mod live_agents;
 mod mobile_host;
-mod mono_panes;
-pub(crate) mod monos;
+mod minion_panes;
+pub(crate) mod minions;
 mod new_chat_choice;
 #[cfg(test)]
 mod new_chat_choice_tests;
@@ -360,7 +360,7 @@ fn adjacent<T: PartialEq + Clone>(items: &[T], current: Option<&T>, step: isize)
 #[derive(Clone, PartialEq)]
 pub(crate) enum MenuTarget {
     Tab(i64),
-    MonoTab(String),
+    MinionTab(String),
     SearchTab,
     AppTab(app_views::AppView),
     Session(i64),
@@ -472,8 +472,8 @@ enum DragSource {
     Review(i64),
     Tab(i64),
     Session(i64),
-    /// A Mono tab pulled down out of the strip; it has no pane yet.
-    MonoTab,
+    /// A Minion tab pulled down out of the strip; it has no pane yet.
+    MinionTab,
     /// A dock terminal pulled off the dock's strip; it has no pane yet.
     DockTerminal(usize),
 }
@@ -484,7 +484,7 @@ impl DragSource {
             | DragSource::Review(id)
             | DragSource::Tab(id)
             | DragSource::Session(id) => id,
-            DragSource::MonoTab | DragSource::DockTerminal(_) => i64::MIN,
+            DragSource::MinionTab | DragSource::DockTerminal(_) => i64::MIN,
         }
     }
 }
@@ -557,8 +557,8 @@ enum PaneMark {
     Session(String, Option<i64>),
     /// A file's name, or `None` for changes and commits.
     File(Option<String>),
-    /// A Mono's mascot and colour.
-    Mono(String, u32),
+    /// A Minion's mascot and colour.
+    Minion(String, u32),
     /// A terminal pulled out of its dock.
     Terminal,
 }
@@ -607,10 +607,10 @@ struct SessionPreview {
 }
 
 pub(crate) struct Shell {
-    monos: Option<Entity<crate::monos::Monos>>,
+    minions: Option<Entity<crate::minions::Minions>>,
     quick_open: Option<quick_open::Open>,
     image_lightbox: Option<(Entity<crate::image_lightbox::ImageLightbox>, Subscription)>,
-    app_bridge: Option<monocode_core::mono::bridge::Server>,
+    app_bridge: Option<monocode_core::minion::bridge::Server>,
     mobile: mobile_host::Mobile,
     app_results: HashMap<(i64, String), (String, Result<serde_json::Value, String>)>,
     app_pending: HashSet<(i64, String)>,
@@ -809,8 +809,8 @@ pub(crate) struct Shell {
     review_drag: bool,
     split_bounds: HashMap<i64, AnchorSlot>,
     pane_bounds: AnchorSlot,
-    /// The visible Mono's view, a drop target for tabs and panes.
-    mono_bounds: AnchorSlot,
+    /// The visible Minion's view, a drop target for tabs and panes.
+    minion_bounds: AnchorSlot,
     pane_drag: Option<PaneDrag>,
     pane_sash: Option<SashDrag>,
     pane_motion: Option<PaneMotion>,
@@ -999,7 +999,7 @@ impl Shell {
         let resource_stops = cx.subscribe(&resources, |this, _, StopSession(id), cx| {
             if let Some(session) = this.sessions.get(id) {
                 session.update(cx, |session, cx| session.stop_if_busy(cx));
-            } else if let Some(m) = this.monos.clone() {
+            } else if let Some(m) = this.minions.clone() {
                 m.update(cx, |m, cx| m.stop_session(*id, cx));
             }
         });
@@ -1015,7 +1015,7 @@ impl Shell {
             .map(|id| classic_sidebar::ClassicSidebarTab::from_id(id))
             .unwrap_or_default();
         let mut this = Self {
-            monos: None,
+            minions: None,
             quick_open: None,
             image_lightbox: None,
             app_bridge: None,
@@ -1179,7 +1179,7 @@ impl Shell {
             review_drag: false,
             split_bounds: HashMap::new(),
             pane_bounds: AnchorSlot::default(),
-            mono_bounds: AnchorSlot::default(),
+            minion_bounds: AnchorSlot::default(),
             pane_drag: None,
             pane_sash: None,
             pane_motion: None,
@@ -1220,47 +1220,47 @@ impl Shell {
         this.observe_accounts(cx);
         this.load_note_count(cx);
         this.observe_picker_preferences(cx);
-        let mono_owner = cx.weak_entity();
-        let mono_active =
+        let minion_owner = cx.weak_entity();
+        let minion_active =
             this.workspace
                 .scope_focus
                 .get(&this.tab_scope())
                 .and_then(|tab| match tab {
-                    TitleTab::Mono { id, .. } => Some(id.clone()),
+                    TitleTab::Minion { id, .. } => Some(id.clone()),
                     _ => None,
                 });
-        let monos = cx.new(|cx| {
-            crate::monos::Monos::new(
+        let minions = cx.new(|cx| {
+            crate::minions::Minions::new(
                 this.store.clone(),
-                mono_owner,
+                minion_owner,
                 this.workspace.preferences.clone(),
-                mono_active,
+                minion_active,
                 this.notification_state.region.clone(),
                 cx,
             )
         });
         this.observations.push(
-            cx.subscribe(&monos, |this, _, _: &crate::monos::Changed, cx| {
-                this.sync_mono_search(cx);
+            cx.subscribe(&minions, |this, _, _: &crate::minions::Changed, cx| {
+                this.sync_minion_search(cx);
                 this.update_usage_provider(cx);
                 this.invalidate_chrome(cx);
                 cx.notify();
             }),
         );
         this.observations.push(cx.subscribe(
-            &monos,
-            |this, _, opened: &crate::monos::TabOpened, cx| {
-                this.mono_opened(opened.0.clone(), cx);
+            &minions,
+            |this, _, opened: &crate::minions::TabOpened, cx| {
+                this.minion_opened(opened.0.clone(), cx);
             },
         ));
         this.observations.push(cx.subscribe(
-            &monos,
-            |_, _, request: &crate::monos::ShowDetails, cx| {
+            &minions,
+            |_, _, request: &crate::minions::ShowDetails, cx| {
                 let id = request.0.clone();
                 cx.spawn(async move |this, cx| {
                     let _ = this.update_in(cx, |this, window, cx| {
                         if this
-                            .monos
+                            .minions
                             .as_ref()
                             .is_some_and(|m| m.read(cx).active.as_ref() == Some(&id))
                         {
@@ -1271,37 +1271,37 @@ impl Shell {
                 .detach();
             },
         ));
-        let mut mono_chrome = monos.read(cx).overview_chrome();
-        let mut mono_error = monos.read(cx).error.clone();
-        let mut mono_session = monos.read(cx).routed_session();
+        let mut minion_chrome = minions.read(cx).overview_chrome();
+        let mut minion_error = minions.read(cx).error.clone();
+        let mut minion_session = minions.read(cx).routed_session();
         this.observations
-            .push(cx.observe(&monos, move |this, monos, cx| {
-                let session = monos.read(cx).routed_session();
-                if session != mono_session {
-                    mono_session = session;
+            .push(cx.observe(&minions, move |this, minions, cx| {
+                let session = minions.read(cx).routed_session();
+                if session != minion_session {
+                    minion_session = session;
                     this.update_chat_visibility(cx);
                 }
-                let chrome = monos.read(cx).overview_chrome();
-                if chrome != mono_chrome {
-                    mono_chrome = chrome;
+                let chrome = minions.read(cx).overview_chrome();
+                if chrome != minion_chrome {
+                    minion_chrome = chrome;
                     this.invalidate_chrome(cx);
                     cx.notify();
                 }
-                let error = &monos.read(cx).error;
-                if *error != mono_error {
-                    mono_error = error.clone();
+                let error = &minions.read(cx).error;
+                if *error != minion_error {
+                    minion_error = error.clone();
                     cx.notify();
                 }
             }));
-        this.monos = Some(monos);
-        this.sync_mono_projects(cx);
+        this.minions = Some(minions);
+        this.sync_minion_projects(cx);
         this.bind_notices(cx);
         this.init_app_bridge(cx);
         for summary in summaries {
             if this
-                .monos
+                .minions
                 .as_ref()
-                .is_some_and(|m| m.read(cx).is_mono_session(summary.id))
+                .is_some_and(|m| m.read(cx).is_minion_session(summary.id))
             {
                 continue;
             }
@@ -1346,22 +1346,22 @@ impl Shell {
                 if !self.app_view_open()
                     && self.settings.is_none()
                     && !self.search_page()
-                    && !self.mono_active(cx) =>
+                    && !self.minion_active(cx) =>
             {
                 self.workspace.layout(tab).leaf_ids().into_iter().collect()
             }
             _ => HashSet::new(),
         };
-        // A session opened in the Mono details panel is on screen too. Left
+        // A session opened in the Minion details panel is on screen too. Left
         // out, it was trimmed as inactive and the panel showed it empty.
-        if self.mono_active(cx)
+        if self.minion_active(cx)
             && self.workspace.right_panel_open
             && !self.app_view_open()
             && self.settings.is_none()
             && !self.search_page()
         {
             shown.extend(
-                self.monos
+                self.minions
                     .as_ref()
                     .and_then(|m| m.read(cx).routed_session()),
             );
@@ -1697,15 +1697,15 @@ impl Shell {
     /// project, and not covered by an app view.
     fn right_panel_shown(&self, cx: &App) -> bool {
         (self.workspace.right_panel_open || self.right_slide.is_some())
-            && (!self.workspace.classic_layout || self.mono_active(cx))
+            && (!self.workspace.classic_layout || self.minion_active(cx))
             && !self.app_view_open()
             && self.settings.is_none()
             && !self.search_page()
-            && (self.mono_active(cx) || self.git.read(cx).available())
+            && (self.minion_active(cx) || self.git.read(cx).available())
     }
     fn sync_right_panel(&mut self, cx: &mut Context<Self>) {
         let opening = self.right_slide.as_ref().is_some_and(PaneSlide::opening);
-        let shown = !self.mono_active(cx)
+        let shown = !self.minion_active(cx)
             && !self.workspace.classic_layout
             && self.workspace.right_panel_open
             && !self.app_view_open()
@@ -1736,8 +1736,8 @@ impl Shell {
         self.ensure_right_panel(window, cx);
         self.leave_app_views(cx);
         self.close_app_search(window, cx);
-        if let Some(monos) = self.monos.clone() {
-            monos.update(cx, |monos, cx| monos.close(cx));
+        if let Some(minions) = self.minions.clone() {
+            minions.update(cx, |minions, cx| minions.close(cx));
         }
         self.classic_sidebar_tab = tab;
         self.workspace
@@ -1775,14 +1775,14 @@ impl Shell {
     }
     fn set_right_panel_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.app_view_open()
-            || (!self.mono_active(cx) && !self.git.read(cx).available())
+            || (!self.minion_active(cx) && !self.git.read(cx).available())
             || self.workspace.right_panel_open == open
         {
             return;
         }
         let details_focus =
-            if let Some(monos) = self.monos.as_ref().filter(|m| m.read(cx).active.is_some()) {
-                Some(monos.read(cx).details.focus_handle(cx))
+            if let Some(minions) = self.minions.as_ref().filter(|m| m.read(cx).active.is_some()) {
+                Some(minions.read(cx).details.focus_handle(cx))
             } else {
                 self.right_panel.as_ref().map(|p| p.focus_handle(cx))
             };
@@ -1803,7 +1803,7 @@ impl Shell {
         });
         self.sync_right_panel(cx);
         if open
-            && !self.mono_active(cx)
+            && !self.minion_active(cx)
             && let Some(panel) = self.right_panel.clone()
         {
             panel.update(cx, |p, cx| p.focus_pane(window, cx));
@@ -2303,7 +2303,7 @@ impl Shell {
             .sessions
             .get(&id)
             .map(|s| s.read(cx).display_title())
-            .or_else(|| self.mono_pane_title(id, cx))
+            .or_else(|| self.minion_pane_title(id, cx))
             .or_else(|| self.terminal_pane_title(id, cx))
             .unwrap_or_default();
         let focused = self.workspace.active == Some(id) && !self.review_focused;
@@ -2403,7 +2403,7 @@ impl Shell {
                             this.review_focused = false;
                             this.focus_pane(id, window, cx);
                             // A terminal splits off a fresh shell; a chat or a
-                            // Mono, a new session with its provider.
+                            // Minion, a new session with its provider.
                             if this.workspace.terminal_panes.contains_key(&id) {
                                 this.split_title_terminal_toward(dir, window, cx);
                             } else {
@@ -2745,8 +2745,8 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if self.workspace.mono_panes.contains_key(&id) {
-            return self.mono_pane_surface(id, split, cx);
+        if self.workspace.minion_panes.contains_key(&id) {
+            return self.minion_pane_surface(id, split, cx);
         }
         if self.workspace.terminal_panes.contains_key(&id) {
             return self.terminal_pane_surface(id, split, cx);
@@ -2970,7 +2970,7 @@ impl Shell {
         if self.right_panel_shown(cx) {
             main -= self.right_panel_width();
         }
-        if self.mono_active(cx) {
+        if self.minion_active(cx) {
             return main;
         }
         if let Some(dock) = self.workspace.docks.get(&self.workspace.project)
@@ -3516,9 +3516,9 @@ impl Shell {
             self.open_file_pane(id, window, cx);
             return;
         }
-        if self.workspace.mono_panes.contains_key(&id) {
+        if self.workspace.minion_panes.contains_key(&id) {
             if self.workspace.active != Some(id) {
-                self.open_mono_pane(id, window, cx);
+                self.open_minion_pane(id, window, cx);
             }
             return;
         }
@@ -3572,9 +3572,9 @@ impl Shell {
         self.navigation_revision += 1;
         self.begin_pane_motion(before, cx);
         self.fit_sidebar(cx);
-        // A Mono left alone becomes its tab again, and shows when focused.
-        self.settle_mono_panes(window, cx);
-        if self.mono_active(cx) {
+        // A Minion left alone becomes its tab again, and shows when focused.
+        self.settle_minion_panes(window, cx);
+        if self.minion_active(cx) {
             return;
         }
         if self.workspace.active != active {
@@ -3737,9 +3737,9 @@ impl Shell {
         if self.app_view_open() {
             return None;
         }
-        // The visible Mono hides the tab's panes and stands in for them.
-        if self.mono_active(cx) {
-            return self.mono_view_hit(position, cx);
+        // The visible Minion hides the tab's panes and stands in for them.
+        if self.minion_active(cx) {
+            return self.minion_view_hit(position, cx);
         }
         let bounds = self.pane_bounds.get()?;
         if !bounds.contains(&position) {
@@ -3869,8 +3869,8 @@ impl Shell {
             self.apply_sidebar_drop(drag.source.session(), target, window, cx);
             return;
         }
-        let mono = match drag.source {
-            DragSource::Pane(pane) => self.workspace.mono_panes.get(&pane).cloned(),
+        let minion = match drag.source {
+            DragSource::Pane(pane) => self.workspace.minion_panes.get(&pane).cloned(),
             _ => None,
         };
         if let DragSource::DockTerminal(ix) = drag.source {
@@ -3879,7 +3879,7 @@ impl Shell {
         }
         let mut over = drag
             .over
-            .map(|(target, edge)| (self.resolve_mono_target(target, cx), edge));
+            .map(|(target, edge)| (self.resolve_minion_target(target, cx), edge));
         let mut before = self.active_leaves();
         let id = drag.source.session();
         if matches!(drag.source, DragSource::Pane(_))
@@ -3936,14 +3936,14 @@ impl Shell {
         self.history
             .prune(&self.workspace.open_sessions(), self.workspace.active);
         self.fit_sidebar(cx);
-        // A Mono pulled out of its split onto the strip is its tab again.
-        self.settle_mono_panes(window, cx);
-        if let (Some(mono), Some(to)) = (mono, drag.insert)
-            && self.workspace.title_order.contains(&mono)
+        // A Minion pulled out of its split onto the strip is its tab again.
+        self.settle_minion_panes(window, cx);
+        if let (Some(minion), Some(to)) = (minion, drag.insert)
+            && self.workspace.title_order.contains(&minion)
         {
-            self.reorder_title_tab(&mono, to, cx);
+            self.reorder_title_tab(&minion, to, cx);
         }
-        if self.mono_active(cx) {
+        if self.minion_active(cx) {
             self.persist(cx);
             return;
         }
@@ -4119,12 +4119,12 @@ impl Shell {
         self.update_usage_provider(cx);
         self.sync_right_panel(cx);
         self.invalidate_chrome(cx);
-        self.sync_mono_projects(cx);
+        self.sync_minion_projects(cx);
         self.save_state(cx);
     }
-    /// Monos are global: they follow the app's open projects.
-    fn sync_mono_projects(&mut self, cx: &mut Context<Self>) {
-        let Some(monos) = self.monos.clone() else {
+    /// Minions are global: they follow the app's open projects.
+    fn sync_minion_projects(&mut self, cx: &mut Context<Self>) {
+        let Some(minions) = self.minions.clone() else {
             return;
         };
         let projects: Vec<String> = self
@@ -4134,8 +4134,8 @@ impl Shell {
             .filter(|p| !self.workspace.archived_projects.contains(p))
             .cloned()
             .collect();
-        // The shell may be mid-update of Monos when this runs.
-        cx.defer(move |cx| monos.update(cx, |m, cx| m.set_projects(projects, cx)));
+        // The shell may be mid-update of Minions when this runs.
+        cx.defer(move |cx| minions.update(cx, |m, cx| m.set_projects(projects, cx)));
     }
     fn save_window_state(&mut self, window: &Window, cx: &mut Context<Self>) {
         let bounds = window.inner_window_bounds();
@@ -4174,9 +4174,9 @@ impl Shell {
     }
     fn update_usage_provider(&self, cx: &mut Context<Self>) {
         let view = self
-            .monos
+            .minions
             .as_ref()
-            .filter(|_| self.mono_active(cx))
+            .filter(|_| self.minion_active(cx))
             .and_then(|m| m.read(cx).chat())
             .or_else(|| {
                 self.workspace.active.and_then(|id| {
@@ -4206,11 +4206,11 @@ impl Shell {
         if self.focus_app_view(window, cx) {
             return;
         }
-        if let Some(monos) = self.monos.clone().filter(|m| m.read(cx).active.is_some()) {
-            monos.update(cx, |m, cx| m.focus_active(window, cx));
+        if let Some(minions) = self.minions.clone().filter(|m| m.read(cx).active.is_some()) {
+            minions.update(cx, |m, cx| m.focus_active(window, cx));
             return;
         }
-        if self.focus_mono_pane(window, cx) || self.focus_terminal_pane(window, cx) {
+        if self.focus_minion_pane(window, cx) || self.focus_terminal_pane(window, cx) {
             return;
         }
         if let Some(review) = self
@@ -4232,8 +4232,8 @@ impl Shell {
             self.open_file_pane(id, window, cx);
             return;
         }
-        if self.workspace.mono_panes.contains_key(&id) {
-            self.open_mono_pane(id, window, cx);
+        if self.workspace.minion_panes.contains_key(&id) {
+            self.open_minion_pane(id, window, cx);
             return;
         }
         if self.workspace.terminal_panes.contains_key(&id) {
@@ -4295,16 +4295,16 @@ impl Shell {
             self.open_file_pane(id, window, cx);
             return;
         }
-        if self.workspace.mono_panes.contains_key(&id) {
-            self.open_mono_pane(id, window, cx);
+        if self.workspace.minion_panes.contains_key(&id) {
+            self.open_minion_pane(id, window, cx);
             return;
         }
         if self.workspace.terminal_panes.contains_key(&id) {
             self.open_terminal_pane(id, window, cx);
             return;
         }
-        if let Some(monos) = &self.monos {
-            monos.update(cx, |m, cx| m.close(cx));
+        if let Some(minions) = &self.minions {
+            minions.update(cx, |m, cx| m.close(cx));
         }
         self.leave_app_views(cx);
         self.leave_app_search(cx);
@@ -4459,8 +4459,8 @@ impl Shell {
         self.leave_app_views(cx);
         self.leave_app_search(cx);
         self.close_preview(cx);
-        if let Some(monos) = self.monos.clone() {
-            monos.update(cx, |m, cx| m.close(cx));
+        if let Some(minions) = self.minions.clone() {
+            minions.update(cx, |m, cx| m.close(cx));
         }
         self.workspace.project = path.clone();
         self.workspace.active = None;
@@ -4472,8 +4472,8 @@ impl Shell {
             }
         }
         self.workspace.collapsed.remove(&path);
-        // Original-layout project buttons leave the standalone Mono/app view.
-        // The new layout restores each project's selected tab, including Monos.
+        // Original-layout project buttons leave the standalone Minion/app view.
+        // The new layout restores each project's selected tab, including Minions.
         let remembered_session = self
             .workspace
             .scope_focus
@@ -4534,7 +4534,7 @@ impl Shell {
         cx.notify();
     }
     fn ensure_project_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.workspace.active.is_some() || self.mono_active(cx) {
+        if self.workspace.active.is_some() || self.minion_active(cx) {
             return;
         }
         if let Some(id) = self.order.iter().copied().find(|id| {
@@ -4665,7 +4665,7 @@ impl Shell {
                                 != focus.as_ref().map(|f| &f.path)
                             || if only_if_empty {
                                 this.workspace.active.is_some()
-                                    || this.mono_active(cx)
+                                    || this.minion_active(cx)
                                     || this.app_view_open()
                                     || this.settings.is_some()
                             } else {
@@ -4750,7 +4750,7 @@ impl Shell {
                     BACK_LABEL,
                     "chevron-left",
                     self.settings.is_some()
-                        || (self.workspace.classic_layout && self.mono_active(cx))
+                        || (self.workspace.classic_layout && self.minion_active(cx))
                         || !self.history.back.is_empty(),
                 )
                 .debug_selector(|| "visit-back".into())
@@ -4809,8 +4809,8 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let content =
-            if let Some(monos) = self.monos.as_ref().filter(|m| m.read(cx).active.is_some()) {
-                let manager = monos.read(cx);
+            if let Some(minions) = self.minions.as_ref().filter(|m| m.read(cx).active.is_some()) {
+                let manager = minions.read(cx);
                 let details = manager.details.clone();
                 let html = manager.native_detail_content(cx);
                 // Native artifact views must update their frames and clipping
@@ -4905,7 +4905,7 @@ impl Shell {
                 }
             }))
     }
-    /// Mono detail layers occlude the shell's ordinary mouse handlers. An
+    /// Minion detail layers occlude the shell's ordinary mouse handlers. An
     /// active resize must keep receiving moves and release over those layers.
     fn right_panel_resize_watch(&self, cx: &Context<Self>) -> AnyElement {
         let shell = cx.entity().downgrade();
@@ -4955,7 +4955,7 @@ impl Shell {
     /// Client-decorated Linux: the bar ends left of the window controls.
     /// The panel's width as drawn: the user's width, widened while Windows'
     /// controls need room beside the corner's tools. The stored width stays
-    /// as the user set it, so closing a Mono gives it back.
+    /// as the user set it, so closing a Minion gives it back.
     pub(super) fn right_panel_width(&self) -> f32 {
         self.workspace.right_panel_width.max(self.right_panel_min)
     }
@@ -5053,19 +5053,19 @@ impl Shell {
 
     /// TitleBar.tsx's right panel toggle, `pl-1.5 pr-3` clear of the edge.
     fn panel_toggle(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let mono = self.mono_active(cx);
-        if self.workspace.classic_layout && !mono {
+        let minion = self.minion_active(cx);
+        if self.workspace.classic_layout && !minion {
             return div().into_any_element();
         }
-        if self.workspace.boxy_layout() && !mono {
+        if self.workspace.boxy_layout() && !minion {
             return self.classic_corner(window, cx);
         }
-        let toggle = mono || self.git.read(cx).available();
+        let toggle = minion || self.git.read(cx).available();
         let panel_off = self.app_view_open();
-        let dot = !mono && !panel_off && self.git.read(cx).has_changes();
+        let dot = !minion && !panel_off && self.git.read(cx).has_changes();
         let panel_active = self.workspace.right_panel_open && !panel_off;
-        let tabs = if mono && panel_active {
-            self.monos.clone().map(|m| {
+        let tabs = if minion && panel_active {
+            self.minions.clone().map(|m| {
                 m.update(cx, |m, cx| {
                     m.overview_controls(
                         self.right_panel_width() >= 312. + self.window_controls,
@@ -5077,7 +5077,7 @@ impl Shell {
         } else {
             self.right_panel
                 .as_ref()
-                .filter(|_| panel_active && !mono)
+                .filter(|_| panel_active && !minion)
                 .map(|panel| {
                     panel
                         .read(cx)
@@ -5128,7 +5128,7 @@ impl Shell {
                         .pr(px(12. + self.window_controls))
                         .when_some(tabs, |d, tabs| {
                             d.child(tabs)
-                                .when(!mono, |d| d.child(titlebar_drag_area().flex_1().min_w_0()))
+                                .when(!minion, |d| d.child(titlebar_drag_area().flex_1().min_w_0()))
                         })
                         .children(self.project_diff_stat(cx))
                         .child(self.file_search_button(cx).mx(px(CORNER_CONTROL_GAP)))
@@ -5267,7 +5267,7 @@ impl Shell {
             .on_click(cx.listener(|this, _, window, cx| this.open_quick_open(false, window, cx)))
     }
     fn diff_stat_room(&self, cx: &App) -> f32 {
-        if self.mono_active(cx) || !self.git.read(cx).available() {
+        if self.minion_active(cx) || !self.git.read(cx).available() {
             return 0.;
         }
         let natural = crate::right_panel::diff_stat_width(self.git.read(cx).stats.as_ref());
@@ -5309,9 +5309,9 @@ impl Shell {
         }
         // Client-drawn window controls hold the corner's right end.
         let controls = self.window_controls;
-        if self.mono_active(cx) || self.git.read(cx).available() {
+        if self.minion_active(cx) || self.git.read(cx).available() {
             if self.workspace.right_panel_open && !self.app_view_open() {
-                if self.mono_active(cx) {
+                if self.minion_active(cx) {
                     let minimum = if self.right_panel_width() >= 312. + controls {
                         312.
                     } else {
@@ -5462,12 +5462,12 @@ impl Shell {
                 MenuStyle::Explorer,
             ),
             MenuTarget::Tab(_)
-            | MenuTarget::MonoTab(_)
+            | MenuTarget::MinionTab(_)
             | MenuTarget::SearchTab
             | MenuTarget::AppTab(_) => {
                 let tab = match target {
                     MenuTarget::Tab(id) => TitleTab::Session(*id),
-                    MenuTarget::MonoTab(id) => self.mono_tab(id.clone()),
+                    MenuTarget::MinionTab(id) => self.minion_tab(id.clone()),
                     MenuTarget::SearchTab => TitleTab::Search,
                     MenuTarget::AppTab(view) => TitleTab::App(*view),
                     _ => unreachable!(),
@@ -5534,8 +5534,8 @@ impl Shell {
                             TitleTab::Session(id) => title(id),
                             TitleTab::Search => "Search".into(),
                             TitleTab::App(view) => view.label().into(),
-                            TitleTab::Mono { id, .. } => self
-                                .monos
+                            TitleTab::Minion { id, .. } => self
+                                .minions
                                 .as_ref()
                                 .and_then(|m| m.read(cx).roster.get(id))
                                 .map(|m| m.label())
@@ -5607,31 +5607,31 @@ impl Shell {
                 MenuStyle::Explorer,
             ),
             MenuTarget::CompactProjectPicker => {
-                let (monos, active) = self
-                    .monos
+                let (minions, active) = self
+                    .minions
                     .as_ref()
                     .filter(|_| self.workspace.classic_layout && self.workspace.preferences.monos)
                     .map(|manager| {
                         let manager = manager.read(cx);
-                        let monos = manager
+                        let minions = manager
                             .roster
-                            .monos
+                            .minions
                             .iter()
-                            .map(|mono| crate::pickers::PickerMono {
-                                id: mono.id.clone(),
-                                name: mono.label(),
-                                mascot: mono.mascot.clone(),
-                                color: mono.color,
+                            .map(|minion| crate::pickers::PickerMinion {
+                                id: minion.id.clone(),
+                                name: minion.label(),
+                                mascot: minion.mascot.clone(),
+                                color: minion.color,
                             })
                             .collect();
-                        (monos, manager.active.clone())
+                        (minions, manager.active.clone())
                     })
                     .unwrap_or_default();
                 let picker = cx.new(|cx| {
                     ProjectPicker::new(&self.workspace.projects, &self.workspace.project, cx)
                         .appearance(self.workspace.project_appearance.clone())
                         .allow_remote()
-                        .monos(monos, active, cx)
+                        .minions(minions, active, cx)
                 });
                 events.push(cx.subscribe_in(
                     &picker,
@@ -5642,9 +5642,9 @@ impl Shell {
                             ProjectPicked::Project(path) => {
                                 this.select_project(path.clone(), window, cx)
                             }
-                            ProjectPicked::Mono(id) => {
-                                if let Some(monos) = this.monos.clone() {
-                                    monos.update(cx, |m, cx| m.open(id, window, cx));
+                            ProjectPicked::Minion(id) => {
+                                if let Some(minions) = this.minions.clone() {
+                                    minions.update(cx, |m, cx| m.open(id, window, cx));
                                 }
                             }
                             ProjectPicked::New => this.open_project(cx),
@@ -5682,7 +5682,7 @@ impl Shell {
                             ProjectPicked::Project(path) if *path != this.workspace.project => {
                                 this.select_project(path.clone(), window, cx)
                             }
-                            ProjectPicked::Project(_) | ProjectPicked::Mono(_) => {}
+                            ProjectPicked::Project(_) | ProjectPicked::Minion(_) => {}
                             ProjectPicked::New => this.open_project(cx),
                             ProjectPicked::Remote => {
                                 this.open_remote_project(window, cx);
@@ -5895,8 +5895,8 @@ impl Shell {
             MenuTarget::Tab(id) => {
                 self.run_title_tab_menu(TitleTab::Session(id), action, window, cx)
             }
-            MenuTarget::MonoTab(id) => {
-                self.run_title_tab_menu(self.mono_tab(id), action, window, cx)
+            MenuTarget::MinionTab(id) => {
+                self.run_title_tab_menu(self.minion_tab(id), action, window, cx)
             }
             MenuTarget::SearchTab => self.run_title_tab_menu(TitleTab::Search, action, window, cx),
             MenuTarget::AppTab(view) => {
@@ -6177,7 +6177,7 @@ impl Shell {
             Some((rails::Rail::Started(children), _)) => children.iter().any(|c| {
                 self.selected_sessions.contains(c)
                     || (self.workspace.active == Some(*c)
-                        && !self.mono_active(cx)
+                        && !self.minion_active(cx)
                         && !self.app_view_open())
             }),
             _ => false,
@@ -6194,7 +6194,7 @@ impl Shell {
         let session = self.session_metadata(id, cx);
         let active = self.selected_sessions.contains(&id)
             || (self.workspace.active == Some(id)
-                && !self.mono_active(cx)
+                && !self.minion_active(cx)
                 && !self.app_view_open());
         let anchor = self
             .session_row_bounds
@@ -6643,7 +6643,7 @@ impl Shell {
         let listable = |id: i64| {
             let s = self.session_metadata(id, cx);
             !self
-                .monos
+                .minions
                 .as_ref()
                 .is_some_and(|m| m.read(cx).hidden_session(id))
                 && s.summary.cwd == self.workspace.project
@@ -7249,14 +7249,14 @@ impl Shell {
             }
         }
         let file_panes = leaves.iter().filter(|id| review(id).is_some()).count();
-        let mono_panes = leaves
+        let minion_panes = leaves
             .iter()
             .filter(|id| {
-                self.workspace.mono_panes.contains_key(id)
+                self.workspace.minion_panes.contains_key(id)
                     || self.workspace.terminal_panes.contains_key(id)
             })
             .count();
-        let multi_pane = sessions.len() + file_panes + mono_panes > 1;
+        let multi_pane = sessions.len() + file_panes + minion_panes > 1;
         let session_focused = sessions.first() == Some(&focus);
         let file_focused =
             !session_focused || (self.tab_review_focused(tab, cx) && review(&focus).is_some());
@@ -7271,11 +7271,11 @@ impl Shell {
         let conversation = sessions.first().map(title).unwrap_or_default();
         let file = files.first().cloned().unwrap_or_default();
         let untitled = "New session".to_owned();
-        let mono = self
-            .mono_pane_title(focus, cx)
+        let minion = self
+            .minion_pane_title(focus, cx)
             .or_else(|| self.terminal_pane_title(focus, cx));
-        let headline = if let Some(mono) = mono {
-            mono
+        let headline = if let Some(minion) = minion {
+            minion
         } else if multi_pane && file_focused && !file.is_empty() {
             file
         } else {
@@ -7289,9 +7289,9 @@ impl Shell {
         let mut panes = Vec::new();
         for id in self.workspace.layout(tab).leaf_ids() {
             if let (Some(title), Some(mark)) = (
-                self.mono_pane_title(id, cx)
+                self.minion_pane_title(id, cx)
                     .or_else(|| self.terminal_pane_title(id, cx)),
-                self.mono_pane_mark(id, cx).or_else(|| {
+                self.minion_pane_mark(id, cx).or_else(|| {
                     self.workspace
                         .terminal_panes
                         .contains_key(&id)
@@ -7359,9 +7359,9 @@ impl Shell {
             }
             PaneMark::File(None) => icon("git-compare", 14.).text_color(ink).into_any_element(),
             PaneMark::Terminal => icon("terminal", 14.).text_color(ink).into_any_element(),
-            PaneMark::Mono(mascot, color) => div()
+            PaneMark::Minion(mascot, color) => div()
                 .opacity(if active { 1. } else { 0.55 })
-                .child(crate::monos::avatar::avatar(
+                .child(crate::minions::avatar::avatar(
                     mascot, *color, "idle", 14., true,
                 ))
                 .into_any_element(),
@@ -7518,7 +7518,7 @@ impl Shell {
     }
     /// A pane's tile: a session on its provider's colour with a white mark,
     /// or, while it works or waits to be seen, its live mark on a neutral
-    /// tile; files and Monos neutral.
+    /// tile; files and Minions neutral.
     fn pane_tile(&self, mark: &PaneMark, live: bool) -> (Face, AnyElement) {
         match mark {
             PaneMark::Session(provider, lit) => {
@@ -7548,7 +7548,7 @@ impl Shell {
                     .text_color(crate::tab_tile::tile_ink())
                     .into_any_element(),
             ),
-            // A Mono keeps its mascot's own colours.
+            // A Minion keeps its mascot's own colours.
             mark => (Face::Neutral, self.pane_mark(mark, true)),
         }
     }
@@ -7718,7 +7718,7 @@ impl Shell {
         let own = self.active_title_tab(cx).as_ref() == Some(&id);
         let source = match &id {
             TitleTab::Session(tab) => Some(DragSource::Tab(*tab)),
-            TitleTab::Mono { .. } => Some(DragSource::MonoTab),
+            TitleTab::Minion { .. } => Some(DragSource::MinionTab),
             TitleTab::Search | TitleTab::App(_) => None,
         };
         let was = self.pane_drag.is_some();
@@ -7745,14 +7745,14 @@ impl Shell {
                 d.over.is_some()
                     && match d.source {
                         DragSource::Tab(tab) => drag.id.session() == Some(tab),
-                        DragSource::MonoTab => matches!(drag.id, TitleTab::Mono { .. }),
+                        DragSource::MinionTab => matches!(drag.id, TitleTab::Minion { .. }),
                         _ => false,
                     }
             });
             if onto_pane {
                 self.skip_tab_click = true;
-                if matches!(drag.id, TitleTab::Mono { .. }) {
-                    self.drop_mono_tab(drag.id, window, cx);
+                if matches!(drag.id, TitleTab::Minion { .. }) {
+                    self.drop_minion_tab(drag.id, window, cx);
                 } else {
                     self.finish_pane_drag(window, cx);
                 }
@@ -8071,7 +8071,7 @@ impl Shell {
                 let (copy, ((leaving, dir, progress), shuffle)) = copies.remove(&id)?;
                 let active = self.workspace.active_tab() == Some(id)
                     && !self.app_view_open()
-                    && !self.mono_active(cx)
+                    && !self.minion_active(cx)
                     && !self.search_page();
                 // The press itself redraws the strip to arm tab dragging.
                 // Keep its ink stable until that press is released, even if
@@ -8288,15 +8288,15 @@ impl Shell {
                         element.into_any_element()
                     })
                 }
-                TitleTab::Mono { id, .. } => {
-                    let manager = self.monos.clone()?;
+                TitleTab::Minion { id, .. } => {
+                    let manager = self.minions.clone()?;
                     let w = tab_width(tab);
                     let element = manager.update(cx, |m, cx| m.title_tab(id, w, cx))?;
                     let drag_id = tab.clone();
                     let menu_id = id.clone();
                     let dragging = dragged.as_ref() == Some(tab);
                     let element = div()
-                        .id(SharedString::from(format!("mono-tab-slot-{id}")))
+                        .id(SharedString::from(format!("minion-tab-slot-{id}")))
                         .h(px(TITLE_BAR_HEIGHT))
                         .w(px(w))
                         .flex_shrink_0()
@@ -8312,7 +8312,7 @@ impl Shell {
                             MouseButton::Right,
                             cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                                 this.open_menu(
-                                    MenuTarget::MonoTab(menu_id.clone()),
+                                    MenuTarget::MinionTab(menu_id.clone()),
                                     Anchor::Point(event.position),
                                     window,
                                     cx,
@@ -8565,10 +8565,10 @@ impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.keep_visible_idle_agents(cx);
         self.sync_ui_scale(window, cx);
-        if self.mono_panes_unsettled(cx) {
+        if self.minion_panes_unsettled(cx) {
             let this = cx.entity();
             window.defer(cx, move |window, cx| {
-                this.update(cx, |this, cx| this.settle_mono_panes(window, cx));
+                this.update(cx, |this, cx| this.settle_minion_panes(window, cx));
             });
         }
         if let Some(id) = self.pending_composer_focus.take()
@@ -8582,7 +8582,7 @@ impl Render for Shell {
             self.review_focused = false;
             window.focus(&view.read(cx).input.focus_handle(cx), cx);
         }
-        if let Some(m) = &self.monos {
+        if let Some(m) = &self.minions {
             m.read(cx).hide_html(cx);
             m.update(cx, |m, cx| m.bind_window(window, cx));
         }
@@ -8597,9 +8597,9 @@ impl Render for Shell {
         self.fullscreen = window.is_fullscreen();
         self.window_controls = corner_controls_width(window);
         // The corner's tools share the panel's header with client-drawn
-        // window controls, so the panel keeps room for both. A Mono's icon
+        // window controls, so the panel keeps room for both. A Minion's icon
         // tabs need 252px (`corner_room`).
-        let tools = if self.window_controls > 0. && self.mono_active(cx) {
+        let tools = if self.window_controls > 0. && self.minion_active(cx) {
             252.
         } else {
             crate::right_panel::WIDTH_MIN
@@ -8713,9 +8713,9 @@ impl Render for Shell {
                         if shell.workspace.preferences.close_to_tray
                             && shell.workspace.preferences.mono_menu_bar_icon
                             && shell
-                                .monos
+                                .minions
                                 .as_ref()
-                                .is_some_and(|m| !m.read(cx).roster.monos.is_empty())
+                                .is_some_and(|m| !m.read(cx).roster.minions.is_empty())
                             && !shell.unsaved_files(cx)
                         {
                             crate::traffic_lights::hide(window);
@@ -8760,7 +8760,7 @@ impl Render for Shell {
                     self.right_slide = None;
                     self.sync_right_panel(cx);
                     if self.workspace.right_panel_open
-                        && !self.mono_active(cx)
+                        && !self.minion_active(cx)
                         && let Some(panel) = self.right_panel.clone()
                     {
                         panel.update(cx, |p, cx| p.finish_opening(window, cx));
@@ -8774,7 +8774,7 @@ impl Render for Shell {
         };
         let right_shown = self.right_panel_shown(cx);
         self.right_drawn = if right_shown { right_width } else { 0. };
-        let poll_git = self.window_active && !self.mono_active(cx);
+        let poll_git = self.window_active && !self.minion_active(cx);
         self.git.update(cx, |git, cx| {
             git.set_polling(poll_git && git.available(), cx)
         });
@@ -8799,11 +8799,11 @@ impl Render for Shell {
                 .view
                 .update(cx, |search, cx| search.set_original_header(original, cx));
         }
-        if let Some(monos) = &self.monos {
-            monos.update(cx, |monos, cx| {
-                monos.set_original_chrome(self.workspace.classic_layout, cx)
+        if let Some(minions) = &self.minions {
+            minions.update(cx, |minions, cx| {
+                minions.set_original_chrome(self.workspace.classic_layout, cx)
             });
-            let details = monos.read(cx).details.clone();
+            let details = minions.read(cx).details.clone();
             let inset = if self.workspace.boxy_layout() && !self.workspace.classic_layout {
                 TITLE_BAR_HEIGHT
             } else {
@@ -8860,10 +8860,10 @@ impl Render for Shell {
                     let cwd = this.git.read(cx).project().to_owned();
                     let (path, location) = crate::file_editor::file_location(&event.0, &cwd);
                     this.open_review(crate::review::ReviewTab::File { cwd, path }, window, cx);
-                    // Monos render above the session pane tree. Give its file
+                    // Minions render above the session pane tree. Give its file
                     // an independent visible tab using the normal navigation
-                    // path, which retains the Mono tab and live conversation.
-                    if this.mono_active(cx)
+                    // path, which retains the Minion tab and live conversation.
+                    if this.minion_active(cx)
                         && let Some(owner) = this.workspace.active
                         && let Some(pane) = this.independent_file_pane(owner, cx)
                     {
@@ -8965,8 +8965,8 @@ impl Render for Shell {
                     this.close_app_search(window, cx);
                     return;
                 }
-                if let Some(TitleTab::Mono { id, .. }) = this.active_title_tab(cx) {
-                    this.close_mono_tab(&id, window, cx);
+                if let Some(TitleTab::Minion { id, .. }) = this.active_title_tab(cx) {
+                    this.close_minion_tab(&id, window, cx);
                     return;
                 }
                 // ⌘W in the focused dock closes its terminal.
@@ -9003,7 +9003,7 @@ impl Render for Shell {
                 this.navigation_revision += 1;
                 // Pins survive the bulk closes, as in the tab menu.
                 this.close_title_tabs(&this.strip_tabs(cx), None, window, cx);
-                if !this.mono_active(cx) {
+                if !this.minion_active(cx) {
                     this.ensure_project_session(window, cx);
                 }
             }))
@@ -9077,8 +9077,8 @@ impl Render for Shell {
                     }
                     return;
                 }
-                if let Some(monos) = this.monos.clone()
-                    && monos.update(cx, |m, cx| m.dismiss_settings(window, cx))
+                if let Some(minions) = this.minions.clone()
+                    && minions.update(cx, |m, cx| m.dismiss_settings(window, cx))
                 {
                     return;
                 }
@@ -9096,7 +9096,7 @@ impl Render for Shell {
                 }
                 if this.menu.is_none()
                     && this.right_panel_shown(cx)
-                    && !this.mono_active(cx)
+                    && !this.minion_active(cx)
                     && let Some(panel) = &this.right_panel
                     && panel.read(cx).tab() == crate::right_panel::RightTab::Files
                 {
@@ -9131,7 +9131,7 @@ impl Render for Shell {
                 }
             }))
             .on_action(cx.listener(|this, _: &SearchFiles, window, cx| {
-                if this.app_view_open() || this.settings.is_some() || this.mono_active(cx) {
+                if this.app_view_open() || this.settings.is_some() || this.minion_active(cx) {
                     return;
                 }
                 this.close_app_search(window, cx);
@@ -9205,8 +9205,8 @@ impl Render for Shell {
             .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
             .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
-                if let Some(monos) = &this.monos {
-                    monos.update(cx, |m, cx| m.move_rail_drag(event, cx));
+                if let Some(minions) = &this.minions {
+                    minions.update(cx, |m, cx| m.move_rail_drag(event, cx));
                 }
                 this.move_tab_drag(event, cx);
                 this.move_dock_drag(event, cx);
@@ -9248,7 +9248,7 @@ impl Render for Shell {
                     this.finish_project_rail_drag(cx);
                     this.finish_space_drag(cx);
                     this.end_classic_sidebar_tab(cx);
-                    if let Some(m) = this.monos.clone() {
+                    if let Some(m) = this.minions.clone() {
                         m.update(cx, |m, cx| m.finish_reorder(cx));
                     }
                     this.release_resizes(cx);
@@ -10849,20 +10849,20 @@ mod tests {
     }
 
     #[gpui::test]
-    fn monos_and_session_title_tabs_share_width_spacing_and_scroll_slots(cx: &mut TestAppContext) {
+    fn minions_and_session_title_tabs_share_width_spacing_and_scroll_slots(cx: &mut TestAppContext) {
         let (window, a, b) = same_project_window(cx);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let mono = window
+        let minion = window
             .update(cx, |shell, w, cx| {
-                let manager = shell.mono_manager();
+                let manager = shell.minion_manager();
                 manager.update(cx, |m, cx| m.create(Vec::new(), w, cx));
                 manager.read(cx).active.clone().unwrap()
             })
             .unwrap();
         let cx = &mut gpui::VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
-        let mono = cx
-            .debug_bounds(Box::leak(format!("mono-title-tab-{mono}").into_boxed_str()))
+        let minion = cx
+            .debug_bounds(Box::leak(format!("minion-title-tab-{minion}").into_boxed_str()))
             .unwrap();
         let first = cx
             .debug_bounds(Box::leak(format!("title-tab-{a}").into_boxed_str()))
@@ -10870,13 +10870,13 @@ mod tests {
         let second = cx
             .debug_bounds(Box::leak(format!("title-tab-{b}").into_boxed_str()))
             .unwrap();
-        assert_eq!(mono.left() - second.right(), px(2.));
+        assert_eq!(minion.left() - second.right(), px(2.));
         assert_eq!(second.left() - first.right(), px(2.));
-        assert_eq!(mono.size, first.size);
+        assert_eq!(minion.size, first.size);
         window
             .update(cx, |shell, _, cx| {
                 assert_eq!(shell.visible_tabs(cx).len(), 3);
-                assert_eq!(shell.tab_scroll.bounds_for_item(2), Some(mono));
+                assert_eq!(shell.tab_scroll.bounds_for_item(2), Some(minion));
                 assert_eq!(shell.tab_scroll.bounds_for_item(0), Some(first));
             })
             .unwrap();

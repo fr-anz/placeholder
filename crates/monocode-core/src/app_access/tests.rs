@@ -109,7 +109,7 @@ fn operator_thread_access_survives_reopen_without_enabling_other_sessions() {
 }
 
 #[test]
-fn operator_rejects_unknown_fields_and_mono_only_capabilities() {
+fn operator_rejects_unknown_fields_and_minion_only_capabilities() {
     for (action, input) in [
         ("sessions.start", json!({"prompt":"x","sidebarHidden":true})),
         ("sessions.start", json!({"prompt":"x","reveal":"false"})),
@@ -203,11 +203,11 @@ fn conversation_pages_read_a_long_message_through_char_offsets() {
     );
     assert_eq!(joined, long);
     assert!(
-        crate::mono::api::validate("sessions.read", &json!({"sessionId":1,"charOffset":"x"}))
+        crate::minion::api::validate("sessions.read", &json!({"sessionId":1,"charOffset":"x"}))
             .is_err()
     );
     assert!(
-        crate::mono::api::validate("sessions.read", &json!({"sessionId":1,"charOffset":10}))
+        crate::minion::api::validate("sessions.read", &json!({"sessionId":1,"charOffset":10}))
             .is_ok()
     );
 }

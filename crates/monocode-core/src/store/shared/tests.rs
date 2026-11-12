@@ -52,7 +52,7 @@ fn saved_turn_metrics_reload_with_the_same_revision() {
 }
 
 #[test]
-fn streamed_indexed_mono_load_preserves_projection_and_revision_guards() {
+fn streamed_indexed_minion_load_preserves_projection_and_revision_guards() {
     let mut store = Store::open_monocode(Path::new(":memory:")).unwrap();
     let legacy = include_str!("../../../../../fixtures/upstream/mono_transcript.rs");
     let schema = legacy
@@ -103,7 +103,7 @@ fn streamed_indexed_mono_load_preserves_projection_and_revision_guards() {
     }
 }
 
-fn indexed_mono(store: &mut Store, turns: usize) -> (i64, String, Vec<Value>) {
+fn indexed_minion(store: &mut Store, turns: usize) -> (i64, String, Vec<Value>) {
     let legacy = include_str!("../../../../../fixtures/upstream/mono_transcript.rs");
     let schema = legacy
         .split("CREATE TABLE IF NOT EXISTS mono_transcripts (")
@@ -159,9 +159,9 @@ fn desktop_habit_reports_are_dated_by_their_run() {
 }
 
 #[test]
-fn a_long_indexed_mono_opens_on_its_newest_turns_and_pages_older_ones() {
+fn a_long_indexed_minion_opens_on_its_newest_turns_and_pages_older_ones() {
     let mut store = Store::open_monocode(Path::new(":memory:")).unwrap();
-    let (id, _, blocks) = indexed_mono(&mut store, 25);
+    let (id, _, blocks) = indexed_minion(&mut store, 25);
 
     let window = store.load(id).unwrap();
     assert_eq!(window.rows, blocks::project(&blocks[30..]).unwrap());
@@ -195,7 +195,7 @@ fn a_long_indexed_mono_opens_on_its_newest_turns_and_pages_older_ones() {
 #[test]
 fn window_saves_never_rewrite_or_drop_turns_before_it() {
     let mut store = Store::open_monocode(Path::new(":memory:")).unwrap();
-    let (id, original, blocks) = indexed_mono(&mut store, 25);
+    let (id, original, blocks) = indexed_minion(&mut store, 25);
     let older = |store: &Store| {
         let mut query = store
             .conn
@@ -257,8 +257,8 @@ fn desktop_sidebar_recovers_only_hidden_launches_of_listed_callers_without_histo
         ("listed-caller", "/project", false, true),
         ("app-listed-caller-review-task", "/project", true, true),
         ("app-listed-caller-other-project", "/other", true, true),
-        ("mono-conversation", "/project", true, true),
-        ("app-mono-conversation-task", "/project", true, true),
+        ("minion-conversation", "/project", true, true),
+        ("app-minion-conversation-task", "/project", true, true),
         ("blank-caller", "/project", false, false),
         ("app-blank-caller-task", "/project", true, true),
         ("worker", "/project", false, true),
@@ -398,7 +398,7 @@ fn original_desktop_schema_opens_without_schema_or_history_migration() {
 }
 
 #[test]
-fn indexed_mono_history_stays_in_its_desktop_tables_with_block_ids_intact() {
+fn indexed_minion_history_stays_in_its_desktop_tables_with_block_ids_intact() {
     let store = Store::open_monocode(Path::new(":memory:")).unwrap();
     let (id, source) = saved(&store, json!([]));
     let legacy = include_str!("../../../../../fixtures/upstream/mono_transcript.rs");
@@ -420,9 +420,9 @@ fn indexed_mono_history_stays_in_its_desktop_tables_with_block_ids_intact() {
         .execute("INSERT INTO mono_transcripts VALUES(?1)", [&source])
         .unwrap();
     let blocks = vec![
-        json!({"id":"mono-prompt","role":"user","text":"Mono history","future":"keep"}),
-        json!({"id":"mono-answer","role":"assistant","text":"Original answer"}),
-        json!({"id":"mono-draft","role":"user","text":"Draft","draft":true}),
+        json!({"id":"minion-prompt","role":"user","text":"Minion history","future":"keep"}),
+        json!({"id":"minion-answer","role":"assistant","text":"Original answer"}),
+        json!({"id":"minion-draft","role":"user","text":"Draft","draft":true}),
     ];
     let tx = store.conn.unchecked_transaction().unwrap();
     store.shared_store_blocks(id, &blocks).unwrap();
@@ -430,13 +430,13 @@ fn indexed_mono_history_stays_in_its_desktop_tables_with_block_ids_intact() {
     let first_raw: String = store
         .conn
         .query_row(
-            "SELECT block_json FROM mono_blocks WHERE block_id='mono-prompt'",
+            "SELECT block_json FROM mono_blocks WHERE block_id='minion-prompt'",
             [],
             |r| r.get(0),
         )
         .unwrap();
     let t = store.load(id).unwrap();
-    assert_eq!(t.rows[0].text, "Mono history");
+    assert_eq!(t.rows[0].text, "Minion history");
     let mut state = store.follow_ups(id).unwrap();
     state.draft = None;
     state.revision += 1;
@@ -461,7 +461,7 @@ fn indexed_mono_history_stays_in_its_desktop_tables_with_block_ids_intact() {
         store
             .conn
             .query_row(
-                "SELECT block_json FROM mono_blocks WHERE block_id='mono-prompt'",
+                "SELECT block_json FROM mono_blocks WHERE block_id='minion-prompt'",
                 [],
                 |r| r.get::<_, String>(0)
             )
@@ -1112,7 +1112,7 @@ fn fresh_native_turn_receipts_persist_source_fields_without_changing_saved_prove
 }
 
 #[test]
-fn indexed_mono_turn_receipts_restore_and_save_in_the_original_block_table() {
+fn indexed_minion_turn_receipts_restore_and_save_in_the_original_block_table() {
     let mut store = Store::open_monocode(Path::new(":memory:")).unwrap();
     let (id, original) = saved(&store, json!([]));
     let legacy = include_str!("../../../../../fixtures/upstream/mono_transcript.rs");
@@ -1134,9 +1134,9 @@ fn indexed_mono_turn_receipts_restore_and_save_in_the_original_block_table() {
         .execute("INSERT INTO mono_transcripts VALUES(?1)", [&original])
         .unwrap();
     let source = vec![
-        json!({"id":"mono-prompt","role":"user","text":"Saved Mono","startedAt":100,"durationMs":7000,
+        json!({"id":"minion-prompt","role":"user","text":"Saved Minion","startedAt":100,"durationMs":7000,
           "turnModel":{"harness":"codex","id":"codex:model","name":"Saved Model"},"future":{"keep":true}}),
-        json!({"id":"mono-answer","role":"assistant","text":"Done"}),
+        json!({"id":"minion-answer","role":"assistant","text":"Done"}),
     ];
     store.shared_store_blocks(id, &source).unwrap();
     let mut transcript = store.load(id).unwrap();

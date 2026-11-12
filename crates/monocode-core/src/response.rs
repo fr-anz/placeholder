@@ -94,7 +94,7 @@ pub fn limit_tail(text: &str, count: usize, marker: &str) -> String {
 }
 /// A delegated session's completion report: the final assistant message of its
 /// latest turn only. Interim progress messages and earlier turns' reports, which
-/// the Mono has already received, are left out. Over budget, the end is kept.
+/// the Minion has already received, are left out. Over budget, the end is kept.
 pub fn completion_report(session: i64, rows: &[Row], count: usize) -> String {
     let turn = rows.iter().rposition(Row::is_prompt).map_or(0, |i| i + 1);
     let text = final_prose(&rows[turn..]);
@@ -293,7 +293,7 @@ mod tests {
         transcript.begin("assistant");
         transcript.append("`NOTHING_TO_REPORT`");
         assert!(
-            crate::mono::habits::report(&final_prose(&transcript.rows)).is_none(),
+            crate::minion::habits::report(&final_prose(&transcript.rows)).is_none(),
             "a quiet final message must not post the opening commentary"
         );
         transcript.begin("assistant");

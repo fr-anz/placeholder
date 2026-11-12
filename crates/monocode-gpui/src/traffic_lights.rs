@@ -112,7 +112,7 @@ pub(crate) fn hide(window: &Window) {
         window.orderOut(None);
     }
 }
-/// mono_chat.rs's floating panel: GPUI's pop-up is already a non-activating
+/// minion_chat.rs's floating panel: GPUI's pop-up is already a non-activating
 /// panel on every Space. Like Tauri's, it hides the window buttons, resizes,
 /// and floats at the status level instead of above menus.
 #[cfg(not(test))]

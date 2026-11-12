@@ -22,8 +22,8 @@ impl Shell {
                             view.update(cx, |v, cx| v.account_unavailable(cx));
                         }
                     }
-                    if let Some(monos) = &this.monos {
-                        monos.update(cx, |m, cx| m.account_changed(*kind, id, true, cx));
+                    if let Some(minions) = &this.minions {
+                        minions.update(cx, |m, cx| m.account_changed(*kind, id, true, cx));
                     }
                 }
                 AccountEvent::Authenticated(kind, id) => {
@@ -34,8 +34,8 @@ impl Shell {
                             view.update(cx, |v, cx| v.account_authenticated(cx));
                         }
                     }
-                    if let Some(monos) = &this.monos {
-                        monos.update(cx, |m, cx| m.account_changed(*kind, id, false, cx));
+                    if let Some(minions) = &this.minions {
+                        minions.update(cx, |m, cx| m.account_changed(*kind, id, false, cx));
                     }
                     this.update_usage_provider(cx);
                 }
@@ -70,7 +70,7 @@ impl Shell {
         let view = session
             .and_then(|id| self.sessions.get(&id).cloned())
             .or_else(|| {
-                self.monos
+                self.minions
                     .as_ref()
                     .and_then(|m| m.read(cx).chat())
                     .filter(|v| Some(v.read(cx).summary.id) == session)
@@ -120,7 +120,7 @@ impl Shell {
         }
         let mut settings = current.settings.clone();
         settings.account = profile;
-        settings.mono = None;
+        settings.minion = None;
         settings.usage_limit = None;
         settings.handoff = None;
         settings.turns.clear();

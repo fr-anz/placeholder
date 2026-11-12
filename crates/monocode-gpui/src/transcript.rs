@@ -11,7 +11,7 @@ mod links;
 mod live_phase;
 mod mascot;
 mod measurements;
-mod mono_divider;
+mod minion_divider;
 mod outline;
 mod perf_scroll;
 pub(crate) mod phases;
@@ -67,7 +67,7 @@ pub(crate) struct LaunchView {
     pub harness: String,
     pub cwd: String,
 }
-/// A message the Mono has not taken yet, shown where it will land.
+/// A message the Minion has not taken yet, shown where it will land.
 #[derive(Clone, PartialEq)]
 pub(crate) struct PendingMessage {
     pub id: String,
@@ -81,7 +81,7 @@ struct TakenMessage {
     removed_at: Instant,
     entrance: Option<Instant>,
 }
-pub(crate) enum MonoResponseAction {
+pub(crate) enum MinionResponseAction {
     Quote {
         text: String,
         window: gpui::AnyWindowHandle,
@@ -93,7 +93,7 @@ pub(crate) enum MonoResponseAction {
         remove: bool,
     },
 }
-impl gpui::EventEmitter<MonoResponseAction> for TranscriptView {}
+impl gpui::EventEmitter<MinionResponseAction> for TranscriptView {}
 
 fn work_title(model: Option<&str>, elapsed_ms: Option<u64>, live: bool) -> String {
     let model = model.map(str::trim).filter(|model| !model.is_empty());
@@ -145,12 +145,12 @@ enum Body {
     RemotePlan(crate::conversation::remote_plans::Plan),
     SavedDraft,
     Markdown(Arc<MarkdownRow>),
-    /// A dithered break between text replies in one Mono turn.
-    MonoDivider,
+    /// A dithered break between text replies in one Minion turn.
+    MinionDivider,
     Visual(Arc<monocode_core::visual::VisualDocument>),
     Plain(SharedString),
     Interjection(monocode_core::transcript::Interjection),
-    MonoCard(serde_json::Value),
+    MinionCard(serde_json::Value),
     /// A queued message's bubble, by its index in `pending`.
     Pending(usize),
     /// LaunchedSessionCard for a session the run started.
@@ -246,7 +246,7 @@ const SPRING_FRAME: f32 = 1000. / 60.;
 /// Row motion redraws the whole transcript, so it runs at no more than 60fps
 /// even on 120Hz displays; the slack keeps a 60Hz display at its full rate.
 const MOTION_FRAME: std::time::Duration = std::time::Duration::from_millis(15);
-/// Mono replies can appear together; keep their glide below 1080px/second.
+/// Minion replies can appear together; keep their glide below 1080px/second.
 const CHAT_FOLLOW_MAX_SPEED: f32 = 18.;
 /// Steady frames only measure the tail. A large reveal measures its full
 /// new distance once before handing over to this bounded window.
@@ -329,10 +329,10 @@ impl Follow {
         self.velocity = velocity;
         offset
     }
-    fn add_shift(&mut self, shift: f32, viewport_height: f32, mono: bool) {
+    fn add_shift(&mut self, shift: f32, viewport_height: f32, minion: bool) {
         let limit = (viewport_height * 0.75).max(0.);
         let offset = self.offset + shift;
-        self.offset = if mono {
+        self.offset = if minion {
             offset.max(-limit)
         } else {
             offset.clamp(-limit, limit)
@@ -385,7 +385,7 @@ pub(crate) fn run_launches(
                 && let Some(action) = input["command"]
                     .as_str()
                     .or_else(|| input["cmd"].as_str())
-                    .and_then(monocode_core::mono::work::command_action)
+                    .and_then(monocode_core::minion::work::command_action)
                 && matches!(action.as_str(), "sessions.start" | "sessions.send")
             {
                 let receipts = serde_json::from_str::<serde_json::Value>(&tool.output)
@@ -401,12 +401,12 @@ pub(crate) fn run_launches(
                         && let Some(id) = value["result"]["sessionId"]
                             .as_i64()
                             .or_else(|| {
-                                monocode_core::mono::work::session_handle(&value["result"]["id"])
+                                monocode_core::minion::work::session_handle(&value["result"]["id"])
                             })
                             .or_else(|| {
                                 (value["result"]["submitted"] == true)
                                     .then(|| {
-                                        monocode_core::mono::work::session_handle(
+                                        monocode_core::minion::work::session_handle(
                                             &value["result"]["sessionId"],
                                         )
                                     })
@@ -425,10 +425,10 @@ pub(crate) fn run_launches(
     found
 }
 
-/// Whether the Mono has said something the user can read in `from..to`: the
+/// Whether the Minion has said something the user can read in `from..to`: the
 /// opening sentence of any run there. A message the user sends after it reads
 /// as the next line of the chat, not as part of the prompt above.
-pub(crate) fn mono_spoke(source: &[Row], from: usize, to: usize) -> bool {
+pub(crate) fn minion_spoke(source: &[Row], from: usize, to: usize) -> bool {
     let mut working = false;
     for (at, row) in source[from.min(to)..to].iter().enumerate() {
         if row.is_prompt() {
@@ -459,8 +459,8 @@ pub(crate) fn prompt_start(source: &[Row], turn: usize) -> usize {
     }
     at
 }
-/// groupMonoChatTurns: the turn a completion run at `turn` continues, if any.
-pub(crate) fn mono_continues(source: &[Row], turn: usize) -> Option<usize> {
+/// groupMinionChatTurns: the turn a completion run at `turn` continues, if any.
+pub(crate) fn minion_continues(source: &[Row], turn: usize) -> Option<usize> {
     let last = turn.checked_sub(1)?;
     if !source.get(last).is_some_and(|r| r.is_prompt()) {
         return None;
@@ -469,7 +469,7 @@ pub(crate) fn mono_continues(source: &[Row], turn: usize) -> Option<usize> {
     if prompt == 0
         || source[prompt..turn].iter().any(|r| r.role != "mono-system")
         || source[prompt - 1].is_prompt()
-        || dates::mono_opens_stretch(source, prompt)
+        || dates::minion_opens_stretch(source, prompt)
     {
         return None;
     }
@@ -481,7 +481,7 @@ pub(crate) fn mono_continues(source: &[Row], turn: usize) -> Option<usize> {
     )
 }
 /// monoWorkStatus: a short status for the turn's latest activity.
-pub(crate) fn mono_work_label(source: &[Row], group: usize) -> String {
+pub(crate) fn minion_work_label(source: &[Row], group: usize) -> String {
     let turn = source[group.min(source.len())..]
         .iter()
         .rposition(|r| r.is_prompt())
@@ -683,10 +683,10 @@ pub(crate) struct TranscriptView {
     history_failed: bool,
     history_search: Option<(usize, String)>,
     prepared_parsers: HashMap<usize, MarkdownParser>,
-    mono: bool,
-    mono_groups: std::cell::RefCell<HashMap<usize, usize>>,
-    /// The Mono's mascot, colour and name, which sign its turns.
-    mono_look: Option<(String, u32, SharedString)>,
+    minion: bool,
+    minion_groups: std::cell::RefCell<HashMap<usize, usize>>,
+    /// The Minion's mascot, colour and name, which sign its turns.
+    minion_look: Option<(String, u32, SharedString)>,
     /// The turn whose actions show, and since when, as `.turn-actions-hover`.
     hovered_turn: Option<(usize, Instant)>,
     /// The prompt message whose copy action shows.
@@ -699,14 +699,14 @@ pub(crate) struct TranscriptView {
     hover_rows: HashMap<(usize, usize), usize>,
     /// Messages entering the chat, by source start, as useBottomChatMotion.
     entrances: HashMap<usize, Instant>,
-    /// The emoji a Mono answered a prompt with, by the prompt's start.
+    /// The emoji a Minion answered a prompt with, by the prompt's start.
     reactions: HashMap<usize, (String, Option<Instant>)>,
     follow: Follow,
     /// monoPendingTranscriptBlocks: queued messages, after the transcript.
     pending: Vec<PendingMessage>,
     /// The outbox keeps this message until storage accepts it, but its prompt
     /// and Thinking header are already painted in the source transcript.
-    submitted_mono_message: Option<String>,
+    submitted_minion_message: Option<String>,
     saved_draft: Option<monocode_core::follow_up::Message>,
     /// Pending messages just taken, including any entrance still in flight.
     taken: Vec<TakenMessage>,
@@ -815,12 +815,12 @@ impl TranscriptView {
         view
     }
     /// AgentTranscript with `agentMascot`, `bottomAligned` and `inlineWork`.
-    pub(crate) fn mono_mode(&mut self, mascot: &str, color: u32, name: &str) {
-        self.mono_look = Some((mascot.into(), color, name.to_owned().into()));
-        if self.mono {
+    pub(crate) fn minion_mode(&mut self, mascot: &str, color: u32, name: &str) {
+        self.minion_look = Some((mascot.into(), color, name.to_owned().into()));
+        if self.minion {
             return;
         }
-        self.mono = true;
+        self.minion = true;
         self.anchor_prompts = false;
         self.chat_layout = true;
         // A short chat rests on the composer, like `justify-end`.
@@ -989,7 +989,7 @@ impl TranscriptView {
     pub(crate) fn response_rows(&self, turn: usize) -> (Vec<Row>, Vec<Row>) {
         let end = (turn..self.source.len())
             .find(|&i| {
-                self.source[i].is_prompt() && !(self.mono && self.mono_next_run_continues(turn, i))
+                self.source[i].is_prompt() && !(self.minion && self.minion_next_run_continues(turn, i))
             })
             .unwrap_or(self.source.len());
         let mut start = self.source[..turn.min(self.source.len())]
@@ -1032,7 +1032,7 @@ impl TranscriptView {
     }
     /// TurnDuration with `revealOnHover`: copy, save as note and activity in
     /// the turn's fixed gap, then its time, shown while the turn is hovered.
-    fn mono_actions(
+    fn minion_actions(
         &mut self,
         turn: usize,
         output: String,
@@ -1052,7 +1052,7 @@ impl TranscriptView {
         let completed_at = self
             .turns
             .iter()
-            .filter(|(run, _)| self.mono_group_start(**run) == turn)
+            .filter(|(run, _)| self.minion_group_start(**run) == turn)
             .max_by_key(|(run, _)| *run)
             .and_then(|(_, info)| info.completed_at);
         let dot = || {
@@ -1072,7 +1072,7 @@ impl TranscriptView {
                 .child(
                     response_actions::button(
                         turn,
-                        "mono-copy-response",
+                        "minion-copy-response",
                         if copied { "Copied" } else { "Copy response" },
                         if copied { "check" } else { "response-copy" },
                         false,
@@ -1099,7 +1099,7 @@ impl TranscriptView {
                 .child(
                     response_actions::button(
                         turn,
-                        "mono-note-response",
+                        "minion-note-response",
                         if saved {
                             "Saved to Notes"
                         } else if pending {
@@ -1126,13 +1126,13 @@ impl TranscriptView {
                 .child(
                     response_actions::button(
                         turn,
-                        "mono-quote-response",
+                        "minion-quote-response",
                         "Quote response",
                         "comment-add",
                         false,
                     )
                     .on_click(cx.listener(move |_, _, window, cx| {
-                        cx.emit(MonoResponseAction::Quote {
+                        cx.emit(MinionResponseAction::Quote {
                             text: quote.clone(),
                             window: window.window_handle(),
                         })
@@ -1142,15 +1142,15 @@ impl TranscriptView {
         actions = actions.child(
             response_actions::button(
                 turn,
-                "mono-response-activity",
+                "minion-response-activity",
                 "Show activity",
                 "list-bullet",
                 false,
             )
-            .on_click(cx.listener(move |_, _, _, cx| cx.emit(MonoResponseAction::Activity(turn)))),
+            .on_click(cx.listener(move |_, _, _, cx| cx.emit(MinionResponseAction::Activity(turn)))),
         );
         div()
-            .id(("mono-turn-actions", turn))
+            .id(("minion-turn-actions", turn))
             .relative()
             .top(px(-4.))
             .h(px(24.))
@@ -1175,19 +1175,19 @@ impl TranscriptView {
             })
             .into_any_element()
     }
-    /// The Mono signs its turn with its mascot and name, beside a live ticker.
-    fn mono_turn_header(&self, turn: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
+    /// The Minion signs its turn with its mascot and name, beside a live ticker.
+    fn minion_turn_header(&self, turn: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
         // Completion runs share the original turn's header.
         let label = self
-            .mono_activity()
+            .minion_activity()
             .filter(|(group, _)| *group == turn)
             .map(|(_, label)| label);
-        self.mono_header(turn, label, cx)
+        self.minion_header(turn, label, cx)
     }
     /// The latest live activity, without relabeling a completed turn before
     /// the next prompt arrives.
-    fn mono_activity(&self) -> Option<(usize, String)> {
-        if !self.mono || !self.streaming || self.source.len() <= self.live_start {
+    fn minion_activity(&self) -> Option<(usize, String)> {
+        if !self.minion || !self.streaming || self.source.len() <= self.live_start {
             return None;
         }
         let latest = self
@@ -1206,31 +1206,31 @@ impl TranscriptView {
                     && self.source[message..]
                         .iter()
                         .any(|row| !row.text.trim().is_empty())
-                    && self.mono_prose_hidden(message)
+                    && self.minion_prose_hidden(message)
             });
-        let group = self.mono_group_start(latest);
+        let group = self.minion_group_start(latest);
         Some((
             group,
             if typing {
                 "Typing…".into()
             } else {
-                mono_work_label(&self.source, group)
+                minion_work_label(&self.source, group)
             },
         ))
     }
-    fn mono_header(
+    fn minion_header(
         &self,
         turn: usize,
         label: Option<String>,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let Some((mascot, color, name)) = self.mono_look.clone() else {
+        let Some((mascot, color, name)) = self.minion_look.clone() else {
             return div().into_any_element();
         };
-        // As a model's "Worked for" line: the Mono's mascot on a tile, then
+        // As a model's "Worked for" line: the Minion's mascot on a tile, then
         // its name.
         let pill = div()
-            .debug_selector(|| "mono-signature-pill".into())
+            .debug_selector(|| "minion-signature-pill".into())
             .flex()
             .min_w_0()
             .flex_shrink_0()
@@ -1241,13 +1241,13 @@ impl TranscriptView {
                 crate::tab_tile::mark_tile(
                     &crate::tab_tile::ACTIVITY_TILE,
                     crate::tab_tile::Face::Neutral,
-                    crate::monos::avatar::avatar(&mascot, color, "idle", 14., true),
+                    crate::minions::avatar::avatar(&mascot, color, "idle", 14., true),
                 )
                 .flex_shrink_0(),
             )
             .child(div().min_w_0().truncate().child(name));
         div()
-            .id(("mono-turn-header", turn))
+            .id(("minion-turn-header", turn))
             .flex()
             .min_w_0()
             .items_center()
@@ -1261,8 +1261,8 @@ impl TranscriptView {
                 d.child(div().flex_shrink_0().text_color(content(0.25)).child("·"))
                     .child(
                         div()
-                            .id(("mono-turn-ticker", turn))
-                            .debug_selector(|| "mono-turn-ticker".into())
+                            .id(("minion-turn-ticker", turn))
+                            .debug_selector(|| "minion-turn-ticker".into())
                             .min_w_0()
                             .flex_1()
                             .truncate()
@@ -1278,7 +1278,7 @@ impl TranscriptView {
                             .when(turn < self.source.len(), |d| {
                                 d.role(Role::Button).aria_label("Show activity").on_click(
                                     cx.listener(move |_, _, _, cx| {
-                                        cx.emit(MonoResponseAction::Activity(turn))
+                                        cx.emit(MinionResponseAction::Activity(turn))
                                     }),
                                 )
                             }),
@@ -1286,7 +1286,7 @@ impl TranscriptView {
             })
             .into_any_element()
     }
-    /// MonoReactionBadge, on the top left corner of the message it answers.
+    /// MinionReactionBadge, on the top left corner of the message it answers.
     fn reaction_badge(&self, prompt: usize) -> Option<gpui::AnyElement> {
         let (emoji, born) = self.reactions.get(&prompt)?;
         // agent-chat-bubble-in: it lands with a small bounce.
@@ -1300,7 +1300,7 @@ impl TranscriptView {
         let height = 22. * scale;
         Some(
             div()
-                .id(("mono-reaction", prompt))
+                .id(("minion-reaction", prompt))
                 .role(Role::Image)
                 .absolute()
                 .top(px(-10. - (height - 22.) / 2.))
@@ -1359,7 +1359,7 @@ impl TranscriptView {
             .child(
                 response_actions::button(
                     start,
-                    "mono-copy-message",
+                    "minion-copy-message",
                     if copied { "Copied" } else { "Copy message" },
                     if copied { "check" } else { "response-copy" },
                     false,
@@ -1371,7 +1371,7 @@ impl TranscriptView {
                 })),
             )
             .when(
-                !self.mono
+                !self.minion
                     && !self.side_question
                     && !self.streaming
                     && monocode_core::provider::supports_rewind(
@@ -1431,7 +1431,7 @@ impl TranscriptView {
     }
     /// `.transcript-turn:hover` shows the reply's actions; hovering a prompt
     /// shows only its own.
-    fn mono_hover(
+    fn minion_hover(
         &mut self,
         prompt: bool,
         start: usize,
@@ -1487,7 +1487,7 @@ impl TranscriptView {
             .iter()
             .rposition(|r| r.is_prompt())
             .map_or(0, |ix| ix + 1);
-        let prompt = self.prompt_start(self.mono_group_start(turn));
+        let prompt = self.prompt_start(self.minion_group_start(turn));
         let group = self
             .messages
             .iter()
@@ -1522,7 +1522,7 @@ impl TranscriptView {
             let height = f32::from(self.measure_row_height(ix, window, cx));
             measured.rows.push((self.rows[ix].key, height));
         }
-        if !self.mono {
+        if !self.minion {
             measured.footer = f32::from(self.footer_height(window, cx));
             let mut height = TOP_INSET
                 + measured.footer
@@ -1564,7 +1564,7 @@ impl TranscriptView {
         });
         let resized = self.follow.measured.as_ref().is_some_and(|m| {
             measured.resized_from(m)
-                || (!self.mono && measured.viewport.height != m.viewport.height)
+                || (!self.minion && measured.viewport.height != m.viewport.height)
         });
         let shift = self.follow.measured.as_ref().map_or(0., |previous| {
             measured.shift_from(previous) - self.closing_shrink(&measured, previous)
@@ -1601,7 +1601,7 @@ impl TranscriptView {
             }
             self.follow.settled_at = None;
             self.follow
-                .add_shift(shift, f32::from(self.viewport.size.height), self.mono);
+                .add_shift(shift, f32::from(self.viewport.size.height), self.minion);
         }
         if let Some(overflow) = prompt_overflow {
             self.follow.offset = self.follow.offset.min(overflow);
@@ -1623,7 +1623,7 @@ impl TranscriptView {
                 grown,
                 elapsed / SPRING_FRAME,
                 sample.min(60.),
-                if self.mono {
+                if self.minion {
                     CHAT_FOLLOW_MAX_SPEED
                 } else {
                     f32::INFINITY
@@ -1646,7 +1646,7 @@ impl TranscriptView {
         };
         let resized = measured.viewport.width != bounds.size.width
             || measured.window_size != window.viewport_size()
-            || (!self.mono && measured.viewport.height != bounds.size.height);
+            || (!self.minion && measured.viewport.height != bounds.size.height);
         let shift = f32::from(measured.bottom - bounds.bottom());
         measured.viewport = bounds.size;
         measured.bottom = bounds.bottom();
@@ -1662,7 +1662,7 @@ impl TranscriptView {
                 || self.follow.offset.abs() >= 0.25
             {
                 self.follow
-                    .add_shift(shift, f32::from(bounds.size.height), self.mono);
+                    .add_shift(shift, f32::from(bounds.size.height), self.minion);
             } else {
                 self.follow.reset();
             }
@@ -1719,9 +1719,9 @@ impl TranscriptView {
             .collect();
         self.pending = pending;
         if !self.pending.iter().any(|message| {
-            message.error.is_none() && Some(&message.id) == self.submitted_mono_message.as_ref()
+            message.error.is_none() && Some(&message.id) == self.submitted_minion_message.as_ref()
         }) {
-            self.submitted_mono_message = None;
+            self.submitted_minion_message = None;
         }
         if animate {
             for id in added {
@@ -1748,7 +1748,7 @@ impl TranscriptView {
     }
     fn push_pending(&mut self, at: usize) {
         for i in 0..self.pending.len() {
-            if Some(&self.pending[i].id) == self.submitted_mono_message.as_ref() {
+            if Some(&self.pending[i].id) == self.submitted_minion_message.as_ref() {
                 continue;
             }
             self.rows.push(UiRow {
@@ -1765,7 +1765,7 @@ impl TranscriptView {
     }
     /// Starting the provider precedes its new prompt. Until that prompt
     /// arrives, the previous answer remains a finished turn.
-    fn mono_pending_joins_live_turn(&self) -> bool {
+    fn minion_pending_joins_live_turn(&self) -> bool {
         self.streaming
             && self
                 .source
@@ -1773,19 +1773,19 @@ impl TranscriptView {
                 .rposition(Row::is_prompt)
                 .is_some_and(|prompt| {
                     prompt >= self.live_start
-                        && !mono_spoke(
+                        && !minion_spoke(
                             &self.source,
-                            self.mono_group_start(prompt + 1),
+                            self.minion_group_start(prompt + 1),
                             self.source.len(),
                         )
                 })
     }
     /// Whether `at` sits in a completion run that continues the turn above,
-    /// returning the turn that opens the group: groupMonoChatTurns.
-    fn mono_group_start(&self, mut turn: usize) -> usize {
+    /// returning the turn that opens the group: groupMinionChatTurns.
+    fn minion_group_start(&self, mut turn: usize) -> usize {
         let mut visited = Vec::new();
         let group = loop {
-            if let Some(group) = self.mono_groups.borrow().get(&turn).copied() {
+            if let Some(group) = self.minion_groups.borrow().get(&turn).copied() {
                 break group;
             }
             visited.push(turn);
@@ -1794,37 +1794,37 @@ impl TranscriptView {
                 .get(&turn)
                 .and_then(|info| info.joined_turn)
                 // A steer stays beside the prompt it joins only until the
-                // Mono has replied in words; after that, the chat reads in order.
+                // Minion has replied in words; after that, the chat reads in order.
                 .filter(|&root| {
-                    root < turn && !mono_spoke(&self.source, root, prompt_start(&self.source, turn))
+                    root < turn && !minion_spoke(&self.source, root, prompt_start(&self.source, turn))
                 })
-                .or_else(|| mono_continues(&self.source, turn))
+                .or_else(|| minion_continues(&self.source, turn))
             {
                 Some(previous) => turn = previous,
                 None => break turn,
             }
         };
-        let mut groups = self.mono_groups.borrow_mut();
+        let mut groups = self.minion_groups.borrow_mut();
         for turn in visited {
             groups.insert(turn, group);
         }
         group
     }
-    fn mono_next_run_continues(&self, turn: usize, end: usize) -> bool {
+    fn minion_next_run_continues(&self, turn: usize, end: usize) -> bool {
         end < self.source.len()
-            && self.mono_group_start(
+            && self.minion_group_start(
                 (end..self.source.len())
                     .find(|&at| !self.source[at].is_prompt())
                     .unwrap_or(self.source.len()),
-            ) == self.mono_group_start(turn)
+            ) == self.minion_group_start(turn)
     }
     /// The first row of the prompt block that opens `turn`.
     fn prompt_start(&self, turn: usize) -> usize {
         prompt_start(&self.source, turn)
     }
-    /// groupMonoTurnItems: prose stays in the activity trail while its run is
+    /// groupMinionTurnItems: prose stays in the activity trail while its run is
     /// live, and when later work in the run follows it.
-    fn mono_prose_hidden(&self, at: usize) -> bool {
+    fn minion_prose_hidden(&self, at: usize) -> bool {
         let end = (at + 1..self.source.len())
             .find(|&i| self.source[i].is_prompt())
             .unwrap_or(self.source.len());
@@ -1835,7 +1835,7 @@ impl TranscriptView {
         let internal = turn > 0 && self.source[turn - 1].role == "mono-system";
         // A direct reply keeps its opening sentence for the conversation.
         // Notification runs keep all commentary in activity and show only
-        // their final message. Every Mono message appears whole.
+        // their final message. Every Minion message appears whole.
         let start = self.source[..=at]
             .iter()
             .rposition(|r| r.first)
@@ -1853,7 +1853,7 @@ impl TranscriptView {
         // settled during that gap, even though it is still the source's tail.
         (self.streaming && at >= self.live_start && end == self.source.len())
             || (self.source.get(end).is_some_and(|row| row.role == "user")
-                && self.mono_next_run_continues(turn, end))
+                && self.minion_next_run_continues(turn, end))
             || self.source[at + 1..end].iter().any(|r| {
                 r.first
                     && (matches!(r.role.as_str(), "tool" | "reasoning")
@@ -1866,7 +1866,7 @@ impl TranscriptView {
             self.launches.contains_key(&id)
         })
     }
-    /// The live state of the sessions this Mono launched, for their cards.
+    /// The live state of the sessions this Minion launched, for their cards.
     pub(crate) fn set_launches(
         &mut self,
         launches: HashMap<i64, LaunchView>,
@@ -1884,7 +1884,7 @@ impl TranscriptView {
         }
     }
     fn launch_row(&mut self, ix: usize, id: i64, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let (top, bottom) = self.mono_card_spacing(ix);
+        let (top, bottom) = self.minion_card_spacing(ix);
         let view = self.launches.get(&id).cloned();
         div()
             .w_full()
@@ -1898,12 +1898,12 @@ impl TranscriptView {
                     .px(px(COLUMN_PAD))
                     .pt(px(top))
                     .pb(px(bottom))
-                    .child(crate::monos::cards::launch(id, view.as_ref(), cx)),
+                    .child(crate::minions::cards::launch(id, view.as_ref(), cx)),
             )
             .into_any_element()
     }
-    fn mono_card_spacing(&self, ix: usize) -> (f32, f32) {
-        let is_card = |row: &UiRow| matches!(row.body, Body::Launch(_) | Body::MonoCard(_));
+    fn minion_card_spacing(&self, ix: usize) -> (f32, f32) {
+        let is_card = |row: &UiRow| matches!(row.body, Body::Launch(_) | Body::MinionCard(_));
         let top = if ix > 0 && is_card(&self.rows[ix - 1]) {
             0.
         } else {
@@ -1929,7 +1929,7 @@ impl TranscriptView {
             .get(ix + 1)
             .is_some_and(|next| !dates::opens_stretch(next.sent_at, message.sent_at));
         let thinking = ix + 1 == self.pending.len()
-            && !self.mono_pending_joins_live_turn()
+            && !self.minion_pending_joins_live_turn()
             && self
                 .pending
                 .first()
@@ -1954,8 +1954,8 @@ impl TranscriptView {
         let attachment_body = (!attachments.is_empty())
             .then(|| self.attachment_row(&attachments, &format!("pending-{}", message.id), cx));
         div()
-            .id(SharedString::from(format!("mono-pending-{}", message.id)))
-            .debug_selector(|| "mono-pending-message".into())
+            .id(SharedString::from(format!("minion-pending-{}", message.id)))
+            .debug_selector(|| "minion-pending-message".into())
             .w_full()
             .flex()
             .flex_col()
@@ -2028,7 +2028,7 @@ impl TranscriptView {
                                 .child(
                                     div()
                                         .id(SharedString::from(format!(
-                                            "mono-pending-error-{}",
+                                            "minion-pending-error-{}",
                                             message.id
                                         )))
                                         .role(Role::Alert)
@@ -2037,7 +2037,7 @@ impl TranscriptView {
                                 .child(
                                     div()
                                         .id(SharedString::from(format!(
-                                            "mono-pending-retry-{retry}"
+                                            "minion-pending-retry-{retry}"
                                         )))
                                         .role(Role::Button)
                                         .rounded(px(4.))
@@ -2047,7 +2047,7 @@ impl TranscriptView {
                                         .hover(|s| s.bg(content(0.08)))
                                         .child("Retry")
                                         .on_click(cx.listener(move |_, _, _, cx| {
-                                            cx.emit(MonoResponseAction::Queue {
+                                            cx.emit(MinionResponseAction::Queue {
                                                 id: retry.clone(),
                                                 remove: false,
                                             })
@@ -2056,7 +2056,7 @@ impl TranscriptView {
                                 .child(
                                     div()
                                         .id(SharedString::from(format!(
-                                            "mono-pending-discard-{discard}"
+                                            "minion-pending-discard-{discard}"
                                         )))
                                         .role(Role::Button)
                                         .rounded(px(4.))
@@ -2066,7 +2066,7 @@ impl TranscriptView {
                                         .hover(|s| s.bg(content(0.08)))
                                         .child("Discard")
                                         .on_click(cx.listener(move |_, _, _, cx| {
-                                            cx.emit(MonoResponseAction::Queue {
+                                            cx.emit(MinionResponseAction::Queue {
                                                 id: discard.clone(),
                                                 remove: true,
                                             })
@@ -2082,7 +2082,7 @@ impl TranscriptView {
                         .max_w(px(COLUMN))
                         .min_w_0()
                         .px(px(COLUMN_PAD))
-                        .child(self.mono_header(self.source.len(), Some("Thinking…".into()), cx)),
+                        .child(self.minion_header(self.source.len(), Some("Thinking…".into()), cx)),
                 )
             })
             .into_any_element()
@@ -2097,15 +2097,15 @@ impl TranscriptView {
         if let Some(next) =
             (at..self.source.len()).find(|&i| self.source[i].first && self.source[i].is_prompt())
             && self.source[next].role == "user"
-            && self.mono_next_run_continues(at, next)
+            && self.minion_next_run_continues(at, next)
         {
-            return !self.mono_opens_stretch(next);
+            return !self.minion_opens_stretch(next);
         }
         if let Some(message) = self
             .pending
             .iter()
-            .find(|message| Some(&message.id) != self.submitted_mono_message.as_ref())
-            && self.mono_pending_joins_live_turn()
+            .find(|message| Some(&message.id) != self.submitted_minion_message.as_ref())
+            && self.minion_pending_joins_live_turn()
             && self
                 .source
                 .iter()
@@ -2117,7 +2117,7 @@ impl TranscriptView {
         }
         while let Some(row) = self.source.get(at) {
             if row.is_prompt() {
-                return !self.mono_opens_stretch(at);
+                return !self.minion_opens_stretch(at);
             }
             let end = (at + 1..self.source.len())
                 .find(|&i| self.source[i].first)
@@ -2172,7 +2172,7 @@ impl TranscriptView {
         if !complete {
             // Reserve the action gap while the ticker works in the header.
             return div()
-                .h(px(if self.mono {
+                .h(px(if self.minion {
                     if before_user { 24. } else { 28. }
                 } else {
                     38.
@@ -2181,8 +2181,8 @@ impl TranscriptView {
         }
         let (rows, _) = self.response_rows(turn);
         let output = monocode_core::response::prose(&rows);
-        if self.mono {
-            return self.mono_actions(turn, output, before_user, cx);
+        if self.minion {
+            return self.minion_actions(turn, output, before_user, cx);
         }
         let copied = self.copied_response.is_some_and(|(id, _)| id == turn);
         let saved = self.note_feedback.get(&turn).is_some_and(|r| r.is_ok());
@@ -2476,9 +2476,9 @@ impl TranscriptView {
             history_failed: false,
             history_search: None,
             prepared_parsers: HashMap::new(),
-            mono: false,
-            mono_groups: Default::default(),
-            mono_look: None,
+            minion: false,
+            minion_groups: Default::default(),
+            minion_look: None,
             hovered_turn: None,
             hovered_prompt: None,
             hovered_prompt_actions: None,
@@ -2487,7 +2487,7 @@ impl TranscriptView {
             reactions: HashMap::new(),
             follow: Follow::default(),
             pending: Vec::new(),
-            submitted_mono_message: None,
+            submitted_minion_message: None,
             saved_draft: None,
             taken: Vec::new(),
             pending_entrances: HashMap::new(),
@@ -2583,8 +2583,8 @@ impl TranscriptView {
         p: &crate::settings::Preferences,
         cx: &mut Context<Self>,
     ) {
-        let chat = p.transcript_layout == "chat" || self.mono;
-        let anchor_prompts = p.anchor_prompts && !self.mono;
+        let chat = p.transcript_layout == "chat" || self.minion;
+        let anchor_prompts = p.anchor_prompts && !self.minion;
         if self.chat_layout == chat
             && self.anchor_prompts == anchor_prompts
             && self.smooth_reveal == p.paced_reveal
@@ -2651,16 +2651,16 @@ impl TranscriptView {
         if self.streaming == streaming {
             return;
         }
-        // What the user already reads while the Mono works, such as its
+        // What the user already reads while the Minion works, such as its
         // opening sentence, must not enter again when the run settles.
-        let shown: HashSet<usize> = if self.mono && !streaming {
+        let shown: HashSet<usize> = if self.minion && !streaming {
             let run = self
                 .source
                 .iter()
                 .rposition(|r| r.is_prompt())
                 .map_or(0, |i| i + 1);
             (run..self.source.len())
-                .filter(|&at| self.source[at].first && !self.mono_prose_hidden(at))
+                .filter(|&at| self.source[at].first && !self.minion_prose_hidden(at))
                 .collect()
         } else {
             HashSet::new()
@@ -2674,7 +2674,7 @@ impl TranscriptView {
             // that prompt, just as React pins on lastUserId rather than busy.
             // Otherwise the old spacer collapses for a frame before the new
             // prompt gets its own anchor and entrance.
-            if self.mono {
+            if self.minion {
                 self.show_jump = false;
                 self.list.set_follow_mode(FollowMode::Tail);
             }
@@ -2718,8 +2718,8 @@ impl TranscriptView {
                 info.completed_at = started_at.and_then(|at| at.checked_add(info.duration_ms));
             }
         }
-        if !streaming && self.mono && self.visible && !cx.reduce_motion() {
-            // The reply a Mono kept in its trail while it worked appears now.
+        if !streaming && self.minion && self.visible && !cx.reduce_motion() {
+            // The reply a Minion kept in its trail while it worked appears now.
             let now = Instant::now();
             let run = self
                 .source
@@ -2739,7 +2739,7 @@ impl TranscriptView {
         }
         // Starting a normal turn must not re-open the previous turn's work or
         // rebuild it as live while the new prompt is still in transit.
-        if (!streaming || self.mono) && !self.messages.is_empty() {
+        if (!streaming || self.minion) && !self.messages.is_empty() {
             let start = self
                 .source
                 .iter()
@@ -2855,7 +2855,7 @@ impl TranscriptView {
             "user"
         });
         submitted.rows[0].sent_at = settings
-            .mono_sent_at
+            .minion_sent_at
             .or_else(|| {
                 settings
                     .turn_model
@@ -2874,12 +2874,12 @@ impl TranscriptView {
             });
         }
         submitted.begin("assistant");
-        if !settings.internal_message && !self.mono && self.visible && !cx.reduce_motion() {
+        if !settings.internal_message && !self.minion && self.visible && !cx.reduce_motion() {
             self.burst = burst::Kind::from_prompt(prompt, settings)
                 .map(|kind| burst::Burst::new(self.source.len(), kind));
         }
-        if self.mono {
-            self.submitted_mono_message = settings.mono_message_id.clone();
+        if self.minion {
+            self.submitted_minion_message = settings.minion_message_id.clone();
         }
         self.patch_view(self.source.len(), submitted.rows, cx);
     }
@@ -2927,15 +2927,15 @@ impl TranscriptView {
             }
         }
         let placed = self.placed.len() != placed;
-        if known == 0 && self.mono && !self.streaming {
+        if known == 0 && self.minion && !self.streaming {
             self.history_start = history::page_start(&self.source, self.source.len());
         }
-        if self.mono {
+        if self.minion {
             let affected = self.source[..start.min(self.source.len())]
                 .iter()
                 .rposition(|row| row.first && row.is_prompt())
                 .unwrap_or(0);
-            self.mono_groups
+            self.minion_groups
                 .get_mut()
                 .retain(|&turn, _| turn < affected);
         }
@@ -2986,7 +2986,7 @@ impl TranscriptView {
         // inside the current provider turn. Continuation rows and replayed
         // snapshots must not move the anchor or resume following the tail.
         if self.streaming
-            && !self.mono
+            && !self.minion
             && let Some(prompt) = (known..self.source.len())
                 .rfind(|&ix| self.source[ix].first && self.source[ix].is_prompt())
         {
@@ -3011,7 +3011,7 @@ impl TranscriptView {
         }
         // Messages that arrive while the chat is open slide and fade in;
         // history that loads or replays does not.
-        if self.mono && self.streaming && self.visible && !cx.reduce_motion() {
+        if self.minion && self.streaming && self.visible && !cx.reduce_motion() {
             let now = Instant::now();
             for ix in start.max(known)..self.source.len() {
                 let row = &self.source[ix];
@@ -3099,7 +3099,7 @@ impl TranscriptView {
         // Advance incoming prose before choosing the displayed block. Its
         // first visible words and the previous block's replacement must be
         // committed together, including after an empty provider placeholder.
-        if !self.mono
+        if !self.minion
             && let Some(at) = (current_turn..current_end)
                 .rev()
                 .find(|&i| self.source[i].role == "assistant" && self.source[i].first)
@@ -3164,7 +3164,7 @@ impl TranscriptView {
                 message_ix -= 1;
             }
         }
-        if !self.mono
+        if !self.minion
             && (self.source[current_turn..current_end].iter().any(|row| {
                 row.role == "tool"
                     && row.first
@@ -3188,11 +3188,11 @@ impl TranscriptView {
                 message_ix -= 1;
             }
         }
-        if self.mono {
+        if self.minion {
             // A run's prose hides behind later work, and a completion run
             // takes over the actions of the turn it continues, so rebuild from
             // the prompt that opens the whole group.
-            let group = self.mono_group_start(current_turn);
+            let group = self.minion_group_start(current_turn);
             let prompt = self.prompt_start(group);
             while message_ix > 0
                 && self
@@ -3239,7 +3239,7 @@ impl TranscriptView {
             .map(|m| (m.start, m))
             .collect();
         self.rows.truncate(display_start);
-        let activity = if self.mono {
+        let activity = if self.minion {
             phases::Phases::default()
         } else {
             phases::collect(&self.source, source_start, self.streaming)
@@ -3306,8 +3306,8 @@ impl TranscriptView {
                         && self.source[i].first
                         && self.answer_visible(i)
                 });
-                // A Mono's work stays in its activity panel, never folded inline.
-                has_work = !self.mono
+                // A Minion's work stays in its activity panel, never folded inline.
+                has_work = !self.minion
                     && final_answer.is_some_and(|answer| {
                         self.source[turn..answer].iter().any(|r| r.role == "tool")
                     });
@@ -3341,7 +3341,7 @@ impl TranscriptView {
                         | "mono-launch"
                         | monocode_core::transcript::attachments::ROLE
                 )
-                && !(self.mono && text.trim().starts_with("<reaction>"))
+                && !(self.minion && text.trim().starts_with("<reaction>"))
                 && (at == 0
                     || self.source[..at]
                         .iter()
@@ -3350,9 +3350,9 @@ impl TranscriptView {
                         .is_some_and(Row::is_prompt)
                     // A run on a later day, such as a habit report, signs
                     // again under its own day.
-                    || (self.mono && dates::opens_later_day(&self.source, at)))
-                && !(self.mono
-                    && self.mono_group_start(turn) != turn
+                    || (self.minion && dates::opens_later_day(&self.source, at)))
+                && !(self.minion
+                    && self.minion_group_start(turn) != turn
                     && !(self.history_start > 0 && self.prompt_start(turn) == self.history_start))
             {
                 self.rows.push(UiRow {
@@ -3415,7 +3415,7 @@ impl TranscriptView {
                 });
             }
             let git_hidden = git_stand_in.as_ref().is_some_and(|card| card.live());
-            if !self.mono
+            if !self.minion
                 && !folded
                 && !git_hidden
                 && grouped
@@ -3444,7 +3444,7 @@ impl TranscriptView {
                 });
             }
             let reaction =
-                self.mono && role == "assistant" && text.trim().starts_with("<reaction>");
+                self.minion && role == "assistant" && text.trim().starts_with("<reaction>");
             if git_hidden {
                 if role == "tool" {
                     self.seen_steps.insert(at);
@@ -3505,7 +3505,7 @@ impl TranscriptView {
                 if let Ok(value) = serde_json::from_str(&text) {
                     self.rows.push(UiRow {
                         key: (0, 0),
-                        body: Body::MonoCard(value),
+                        body: Body::MinionCard(value),
                         message,
                         first: false,
                         last: false,
@@ -3522,7 +3522,7 @@ impl TranscriptView {
             {
                 // Saved work references are rendered once under the settled reply.
             } else if reaction {
-                // MonoReactionBadge: the emoji sits on the message it answers.
+                // MinionReactionBadge: the emoji sits on the message it answers.
                 if let Some(emoji) = text
                     .trim()
                     .strip_prefix("<reaction>")
@@ -3543,11 +3543,11 @@ impl TranscriptView {
                         }
                     }
                 }
-            } else if self.mono
+            } else if self.minion
                 && (matches!(role.as_str(), "tool" | "reasoning")
-                    || (role == "assistant" && self.mono_prose_hidden(at)))
+                    || (role == "assistant" && self.minion_prose_hidden(at)))
             {
-                // groupMonoTurnItems: the header carries the process, and the
+                // groupMinionTurnItems: the header carries the process, and the
                 // prose said while working stays in the activity trail.
                 if role == "tool" {
                     self.seen_steps.insert(at);
@@ -3752,8 +3752,8 @@ impl TranscriptView {
                     && final_answer == Some(at)
                     && self.fold_work
                     && !(self.streaming && turn_end == self.source.len()),
-                turn: if self.mono {
-                    self.mono_group_start(turn)
+                turn: if self.minion {
+                    self.minion_group_start(turn)
                 } else {
                     turn
                 },
@@ -3761,15 +3761,15 @@ impl TranscriptView {
                 prompt_fingerprint,
             });
             let last_prompt = self.source.iter().rposition(|r| r.is_prompt());
-            if self.mono
+            if self.minion
                 && is_prompt
-                && self.mono_pending_joins_live_turn()
+                && self.minion_pending_joins_live_turn()
                 && last_prompt.is_some_and(|p| end > p)
             {
                 // The running turn keeps the user's messages together above its work.
                 self.push_pending(at);
             }
-            if self.mono && !is_prompt && end == turn_end {
+            if self.minion && !is_prompt && end == turn_end {
                 // Starting a provider precedes its hidden notification prompt.
                 // Cards from the completed run stay in place during that gap.
                 let settled = !(self.streaming
@@ -3795,7 +3795,7 @@ impl TranscriptView {
                     for (k, value) in documents.into_iter().enumerate() {
                         self.rows.push(UiRow {
                             key: (at, usize::MAX - 128 + k.min(60)),
-                            body: Body::MonoCard(value),
+                            body: Body::MinionCard(value),
                             message,
                             first: false,
                             last: false,
@@ -3824,13 +3824,13 @@ impl TranscriptView {
                 && self.source[at].role != monocode_core::transcript::attachments::ROLE
                 && !reaction
                 && end == turn_end
-                && !(self.mono && self.mono_next_run_continues(turn, turn_end))
+                && !(self.minion && self.minion_next_run_continues(turn, turn_end))
             {
                 self.rows.push(UiRow {
                     key: (at, usize::MAX - 1),
                     body: Body::Actions {
-                        turn: if self.mono {
-                            self.mono_group_start(turn)
+                        turn: if self.minion {
+                            self.minion_group_start(turn)
                         } else {
                             turn
                         },
@@ -3847,20 +3847,20 @@ impl TranscriptView {
             at = end;
         }
         self.prepared_parsers.clear();
-        if self.mono && !self.rows.iter().any(|r| matches!(r.body, Body::Pending(_))) {
+        if self.minion && !self.rows.iter().any(|r| matches!(r.body, Body::Pending(_))) {
             self.push_pending(self.source.len());
         }
-        if self.mono {
+        if self.minion {
             // An accepted steer stays beside the original user prompt, both
             // while streaming and after the provider's final answer is saved.
             let messages = &self.messages;
-            let pending_group = self.mono_pending_joins_live_turn().then(|| {
+            let pending_group = self.minion_pending_joins_live_turn().then(|| {
                 let latest = self
                     .source
                     .iter()
                     .rposition(Row::is_prompt)
                     .map_or(0, |at| at + 1);
-                self.mono_group_start(latest)
+                self.minion_group_start(latest)
             });
             let tail = self.source.len();
             self.rows[display_start..].sort_by_key(|row| {
@@ -3876,7 +3876,7 @@ impl TranscriptView {
                     row.key,
                 )
             });
-            mono_divider::insert(&mut self.rows, &self.messages, display_start);
+            minion_divider::insert(&mut self.rows, &self.messages, display_start);
         }
         self.push_saved_draft();
         let mut pinned_answers = HashMap::new();
@@ -3999,7 +3999,7 @@ impl TranscriptView {
         }
         self.list
             .remeasure_items(self.footer_ix()..self.footer_ix() + 1);
-        if self.mono && display_start > 0 {
+        if self.minion && display_start > 0 {
             // A new message can stack the one before it, changing its spacing.
             self.list
                 .remeasure_items(display_start.saturating_sub(8)..display_start.min(common));
@@ -4167,7 +4167,7 @@ impl TranscriptView {
             if matches!(
                 row.body,
                 Body::Actions { .. }
-                    | Body::MonoDivider
+                    | Body::MinionDivider
                     | Body::Pending(_)
                     | Body::Launch(_)
                     | Body::SavedDraft
@@ -4754,7 +4754,7 @@ impl TranscriptView {
         let prompt_width = self.split_prompt_width(ix, window);
         let message = &self.messages[row.message];
         let user = message.role == "user";
-        let stacked = user && self.mono && self.stacks_on_next(message.start);
+        let stacked = user && self.minion && self.stacks_on_next(message.start);
         let message_turn = message.turn;
         let error = message.role == "error";
         let reasoning = message.role == "reasoning";
@@ -4769,9 +4769,9 @@ impl TranscriptView {
         let nested_phase = row.in_phase();
         let thought_header = matches!(row.body, Body::Reasoning);
         let attachments = message.attachments.clone();
-        // A Mono's chat shows sent images above the bubble, like photos in a
+        // A Minion's chat shows sent images above the bubble, like photos in a
         // messaging app; only other files stay inside it.
-        let (photos, bubble_files) = if user && first && self.mono {
+        let (photos, bubble_files) = if user && first && self.minion {
             attachments::split_photos(&attachments)
         } else {
             (Vec::new(), attachments.to_vec())
@@ -4867,16 +4867,16 @@ impl TranscriptView {
                     })
                     .into_any_element()
             }
-            Body::MonoCard(ref value) => {
+            Body::MinionCard(ref value) => {
                 let chosen = self.reply_after(row.message);
-                crate::monos::cards::render(value, chosen.as_deref(), cx)
+                crate::minions::cards::render(value, chosen.as_deref(), cx)
             }
-            Body::MonoDivider => mono_divider::render(),
+            Body::MinionDivider => minion_divider::render(),
             Body::Pending(_) | Body::Launch(_) | Body::SavedDraft => div().into_any_element(),
             Body::Actions { turn, complete } => {
-                // Tighten only a visible Mono reply followed by a user bubble;
+                // Tighten only a visible Minion reply followed by a user bubble;
                 // stacked user messages keep their existing spacing.
-                let before_user = self.mono
+                let before_user = self.minion
                     && ix > 0
                     && matches!(self.rows[ix - 1].body, Body::Markdown(_))
                     && self.messages[self.rows[ix - 1].message].role == "assistant"
@@ -4887,7 +4887,7 @@ impl TranscriptView {
                     });
                 self.response_actions(turn, complete, before_user, cx)
             }
-            Body::WorkLine { turn, .. } if self.mono => self.mono_turn_header(turn, cx),
+            Body::WorkLine { turn, .. } if self.minion => self.minion_turn_header(turn, cx),
             Body::WorkLine { turn, expandable } => {
                 let live = self.streaming
                     && message_start >= self.live_start
@@ -5211,9 +5211,9 @@ impl TranscriptView {
                     .into_any_element()
                 };
                 div()
-                    .when(self.mono, |d| {
+                    .when(self.minion, |d| {
                         let key = row.key;
-                        d.debug_selector(move || format!("mono-prose-{}-{}", key.0, key.1))
+                        d.debug_selector(move || format!("minion-prose-{}-{}", key.0, key.1))
                     })
                     .w_full()
                     .flex()
@@ -5242,13 +5242,13 @@ impl TranscriptView {
             }
             Body::Plain(text)
                 if user
-                    && self.mono
+                    && self.minion
                     && first
                     && last
                     && attachments.is_empty()
                     && is_emoji_only(&text) =>
             {
-                // In a Mono's chat a few emoji stand alone: no bubble or actions.
+                // In a Minion's chat a few emoji stand alone: no bubble or actions.
                 div()
                     .relative()
                     .text_size(px(60.))
@@ -5433,7 +5433,7 @@ impl TranscriptView {
                             ),
                         )
                     })
-                    .when(user && self.mono && first, |d| {
+                    .when(user && self.minion && first, |d| {
                         d.children(self.reaction_badge(message_start))
                     })
                     .when(
@@ -5509,13 +5509,13 @@ impl TranscriptView {
             || matches!(self.rows[ix].body, Body::Tool { group: None, .. });
         // Keep a phase header the same height whether its body is present or
         // leaving. The last tool carries the group's animated bottom padding.
-        let card = matches!(self.rows[ix].body, Body::MonoCard(_));
-        let (card_top, card_bottom) = if card && self.mono {
-            self.mono_card_spacing(ix)
+        let card = matches!(self.rows[ix].body, Body::MinionCard(_));
+        let (card_top, card_bottom) = if card && self.minion {
+            self.minion_card_spacing(ix)
         } else if self
             .rows
             .get(ix + 1)
-            .is_some_and(|r| matches!(r.body, Body::MonoCard(_) | Body::Launch(_)))
+            .is_some_and(|r| matches!(r.body, Body::MinionCard(_) | Body::Launch(_)))
         {
             (4., 8.)
         } else {
@@ -5541,7 +5541,7 @@ impl TranscriptView {
             .flex()
             .flex_col()
             .children(if first {
-                self.mono_separator(message_start)
+                self.minion_separator(message_start)
             } else {
                 None
             })
@@ -5562,12 +5562,12 @@ impl TranscriptView {
                             .max_w(px(COLUMN))
                             .min_w_0()
                             .px(px(COLUMN_PAD))
-                            .pt(px(if card && self.mono {
+                            .pt(px(if card && self.minion {
                                 card_top
                             } else if first && !is_tool && !prose {
                                 if user {
                                     4.
-                                } else if receipt && !self.mono {
+                                } else if receipt && !self.minion {
                                     12.
                                 } else {
                                     0.
@@ -5577,10 +5577,10 @@ impl TranscriptView {
                             }))
                             .pb(px(if row.work {
                                 0.
-                            } else if self.mono && user {
+                            } else if self.minion && user {
                                 // `pt-1 pb-5`, or `pb-0` when the next message stacks on it.
                                 if last && !stacked { 20. } else { 0. }
-                            } else if self.mono && receipt {
+                            } else if self.minion && receipt {
                                 0.
                             } else {
                                 bottom
@@ -5590,7 +5590,7 @@ impl TranscriptView {
                             .when(user && self.chat_layout, |d| {
                                 d.pl(px(56.)).flex().justify_end()
                             })
-                            .when(user && self.mono, |d| d.pr(px(COLUMN_PAD)))
+                            .when(user && self.minion, |d| d.pr(px(COLUMN_PAD)))
                             .child(
                                 div()
                                     .relative()
@@ -5708,9 +5708,9 @@ impl TranscriptView {
         };
         outer
             .when(motion.is_some(), |d| d.overflow_hidden())
-            .when(self.mono || user, |d| {
+            .when(self.minion || user, |d| {
                 d.on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                    this.mono_hover(user, message_start, message_turn, key, *hovered, cx)
+                    this.minion_hover(user, message_start, message_turn, key, *hovered, cx)
                 }))
             })
             .opacity(opacity)
@@ -6077,7 +6077,7 @@ fn paint_edge_fade(bounds: Bounds<Pixels>, begin: bool, window: &mut Window) {
 }
 
 #[cfg(test)]
-mod mono_status_tests {
+mod minion_status_tests {
     use super::*;
 
     fn row(role: &str, text: &str) -> Row {
@@ -6094,11 +6094,11 @@ mod mono_status_tests {
         row("tool", &serde_json::to_string(&call).unwrap())
     }
     fn label(rows: Vec<Row>) -> String {
-        mono_work_label(&rows, 0)
+        minion_work_label(&rows, 0)
     }
 
     #[test]
-    fn status_says_what_the_mono_is_doing() {
+    fn status_says_what_the_minion_is_doing() {
         let prompt = row("user", "Review the open PRs");
         assert_eq!(
             label(vec![
@@ -6841,12 +6841,12 @@ mod scroll_tests {
     }
 
     #[gpui::test]
-    fn mono_turn_actions_stay_while_moving_between_its_rows_in_any_event_order(
+    fn minion_turn_actions_stay_while_moving_between_its_rows_in_any_event_order(
         cx: &mut TestAppContext,
     ) {
         let view = cx.new(|_| {
             let mut view = TranscriptView::new();
-            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+            view.minion_mode("cat", 0xe86b5f, "MinionCat");
             view
         });
         view.update(cx, |view, cx| {
@@ -6856,20 +6856,20 @@ mod scroll_tests {
                 cx,
             );
             // The next row reports its enter before the last one leaves.
-            view.mono_hover(false, 1, 1, (1, 16), true, cx);
-            view.mono_hover(false, 1, 1, (1, usize::MAX - 1), true, cx);
-            view.mono_hover(false, 1, 1, (1, 16), false, cx);
+            view.minion_hover(false, 1, 1, (1, 16), true, cx);
+            view.minion_hover(false, 1, 1, (1, usize::MAX - 1), true, cx);
+            view.minion_hover(false, 1, 1, (1, 16), false, cx);
             assert_eq!(view.hovered_turn.map(|(t, _)| t), Some(1));
-            view.mono_hover(false, 1, 1, (1, usize::MAX - 1), false, cx);
+            view.minion_hover(false, 1, 1, (1, usize::MAX - 1), false, cx);
             assert!(view.hovered_turn.is_none());
         });
     }
 
     #[gpui::test]
-    fn mono_messages_stack_past_a_reaction_and_queued_bubbles_hand_over(cx: &mut TestAppContext) {
+    fn minion_messages_stack_past_a_reaction_and_queued_bubbles_hand_over(cx: &mut TestAppContext) {
         let view = cx.new(|_| {
             let mut view = TranscriptView::new();
-            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+            view.minion_mode("cat", 0xe86b5f, "MinionCat");
             view
         });
         view.update(cx, |view, cx| {
@@ -6913,12 +6913,12 @@ mod scroll_tests {
     }
 
     #[gpui::test]
-    fn mono_turns_merge_follow_ups_hide_live_prose_and_queue_above_the_work(
+    fn minion_turns_merge_follow_ups_hide_live_prose_and_queue_above_the_work(
         cx: &mut TestAppContext,
     ) {
         let view = cx.new(|_| {
             let mut view = TranscriptView::new();
-            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+            view.minion_mode("cat", 0xe86b5f, "MinionCat");
             view
         });
         let start = serde_json::to_string(&ToolCall {
@@ -6967,10 +6967,10 @@ mod scroll_tests {
                 "one set of actions, at the end of the group"
             );
             assert!(
-                !view.mono_prose_hidden(1),
+                !view.minion_prose_hidden(1),
                 "the opening sentence shows before the work"
             );
-            assert!(!view.mono_prose_hidden(3));
+            assert!(!view.minion_prose_hidden(3));
             assert!(
                 view.rows
                     .iter()
@@ -6987,13 +6987,13 @@ mod scroll_tests {
             view.patch(6, vec![row("user", "And another thing")], cx);
             view.patch(7, vec![row("assistant", "Working on it")], cx);
             assert!(
-                view.mono_prose_hidden(7),
-                "a Mono message appears whole, not while it streams"
+                view.minion_prose_hidden(7),
+                "a Minion message appears whole, not while it streams"
             );
             view.patch(8, vec![row("tool", &start)], cx);
             assert!(
-                !view.mono_prose_hidden(7),
-                "the finished opening sentence shows while the Mono works"
+                !view.minion_prose_hidden(7),
+                "the finished opening sentence shows while the Minion works"
             );
             view.set_pending(
                 vec![PendingMessage {
@@ -7017,7 +7017,7 @@ mod scroll_tests {
                 .unwrap();
             assert!(
                 pending > header,
-                "a message queued after the Mono spoke follows its words"
+                "a message queued after the Minion spoke follows its words"
             );
         });
     }
@@ -7028,7 +7028,7 @@ mod scroll_tests {
     ) {
         let view = cx.new(|_| {
             let mut view = TranscriptView::new();
-            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+            view.minion_mode("cat", 0xe86b5f, "MinionCat");
             view
         });
         view.update(cx, |view,cx| {
@@ -7038,18 +7038,18 @@ mod scroll_tests {
                 row("mono-launch",r#"{"sessionId":7,"title":"Review","cwd":"/repo","harness":"codex"}"#),
                 row("assistant","Written and checked."),
             ],cx);
-            assert_eq!(view.rows.iter().filter(|r| matches!(r.body,Body::MonoCard(_))).count(),1);
+            assert_eq!(view.rows.iter().filter(|r| matches!(r.body,Body::MinionCard(_))).count(),1);
             assert_eq!(view.rows.iter().filter(|r| matches!(r.body,Body::Launch(7))).count(),1);
             assert!(!view.rows.iter().any(|r| matches!(&r.body,Body::Plain(text) if text.contains("documentId") || text.contains("sessionId"))));
             assert!(!view.rows.iter().any(|r| r.work));
             let answer=view.rows.iter().position(|r| matches!(r.body,Body::Markdown(_))).unwrap();
-            let document=view.rows.iter().position(|r| matches!(r.body,Body::MonoCard(_))).unwrap();
+            let document=view.rows.iter().position(|r| matches!(r.body,Body::MinionCard(_))).unwrap();
             assert!(document > answer);
         });
     }
 
     #[gpui::test]
-    fn mono_document_and_session_cards_are_one_line_like_react(cx: &mut TestAppContext) {
+    fn minion_document_and_session_cards_are_one_line_like_react(cx: &mut TestAppContext) {
         cx.update(|cx| cx.set_reduce_motion(true));
         let start = serde_json::to_string(&ToolCall {
             id: "t".into(),
@@ -7073,7 +7073,7 @@ mod scroll_tests {
                 |_, cx| {
                     cx.new(|cx| {
                         let mut view = TranscriptView::new();
-                        view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                        view.minion_mode("cat", 0xe86b5f, "MinionCat");
                         view.patch(
                             0,
                             vec![
@@ -7107,8 +7107,8 @@ mod scroll_tests {
         });
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
         visual.run_until_parked();
-        let document = visual.debug_bounds("mono-artifact-card").unwrap();
-        let session = visual.debug_bounds("mono-launch-card-7").unwrap();
+        let document = visual.debug_bounds("minion-artifact-card").unwrap();
+        let session = visual.debug_bounds("minion-launch-card-7").unwrap();
         // ArtifactCard: min-h-[38px] and w-fit; LaunchedSessionCard: py-1.5
         // around its project chip, both at most 24rem wide.
         assert_eq!(document.size.height, px(38.));
@@ -7118,7 +7118,7 @@ mod scroll_tests {
     }
 
     #[gpui::test]
-    fn mono_chat_rests_on_the_composer_and_slides_sent_messages_in(cx: &mut TestAppContext) {
+    fn minion_chat_rests_on_the_composer_and_slides_sent_messages_in(cx: &mut TestAppContext) {
         let window = cx.update(|cx| {
             cx.open_window(
                 WindowOptions {
@@ -7131,7 +7131,7 @@ mod scroll_tests {
                 |_, cx| {
                     cx.new(|_| {
                         let mut view = TranscriptView::new();
-                        view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                        view.minion_mode("cat", 0xe86b5f, "MinionCat");
                         view
                     })
                 },
@@ -7164,7 +7164,7 @@ mod scroll_tests {
                 assert!(view.entrances.is_empty(), "history must not slide in");
                 assert!(
                     bubble_top(w) > 400.,
-                    "a short Mono chat sits at the bottom, like justify-end"
+                    "a short Minion chat sits at the bottom, like justify-end"
                 );
             })
             .unwrap();

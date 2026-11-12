@@ -73,7 +73,8 @@ impl Registration {
                 code,
                 mods,
                 HotKeyId {
-                    signature: u32::from_be_bytes(*b"Mono"),
+                    // Four-byte OSType signature; "Mini" for Minion.
+                    signature: u32::from_be_bytes(*b"Mini"),
                     id: 1,
                 },
                 target,

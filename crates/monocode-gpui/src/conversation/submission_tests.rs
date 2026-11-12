@@ -24,21 +24,21 @@ fn conversation(cx: &mut TestAppContext) -> WindowHandle<Conversation> {
 }
 
 #[gpui::test]
-fn mono_messages_steer_the_ready_provider_once_and_keep_their_send_time(cx: &mut TestAppContext) {
+fn minion_messages_steer_the_ready_provider_once_and_keep_their_send_time(cx: &mut TestAppContext) {
     let window = conversation(cx);
     let (send, receive) = std::sync::mpsc::channel();
     window
         .update(cx, |view, _, cx| {
             view.summary.provider = "codex".into();
-            view.configure_mono(
-                monocode_core::mono::Mono::default(),
+            view.configure_minion(
+                monocode_core::minion::Minion::default(),
                 "/tmp".into(),
                 Default::default(),
                 cx,
             );
             view.busy = true;
             view.controls = Some(send);
-            let message = monocode_core::mono::Message {
+            let message = monocode_core::minion::Message {
                 id: "follow-up".into(),
                 text: "is".into(),
                 sent_at: Some(1234),
@@ -47,11 +47,11 @@ fn mono_messages_steer_the_ready_provider_once_and_keep_their_send_time(cx: &mut
                 attachments: vec!["/tmp/image.png".into()],
             };
             assert!(
-                !view.mono_dispatch(&message, cx),
+                !view.minion_dispatch(&message, cx),
                 "wait for provider readiness"
             );
             view.follow_ups.ready = true;
-            assert!(view.mono_dispatch(&message, cx));
+            assert!(view.minion_dispatch(&message, cx));
             let control = receive.try_recv().unwrap();
             let Decision::Steer(steer) = control.decision else {
                 panic!("expected a real steer");
@@ -65,26 +65,26 @@ fn mono_messages_steer_the_ready_provider_once_and_keep_their_send_time(cx: &mut
             );
             assert!(view.busy);
             assert!(
-                !view.mono_dispatch(&message, cx),
+                !view.minion_dispatch(&message, cx),
                 "do not send twice while acknowledgement is pending"
             );
             assert!(receive.try_recv().is_err());
-            view.mono_message_delivered(message.id.clone(), cx);
+            view.minion_message_delivered(message.id.clone(), cx);
             assert!(
-                !view.mono_dispatch(&message, cx),
+                !view.minion_dispatch(&message, cx),
                 "an acknowledged message cannot be resent"
             );
-            let second = monocode_core::mono::Message {
+            let second = monocode_core::minion::Message {
                 id: "next".into(),
                 ..message
             };
-            assert!(view.mono_dispatch(&second, cx));
-            view.mono_message_failed(second.id.clone(), "Could not steer".into());
+            assert!(view.minion_dispatch(&second, cx));
+            view.minion_message_failed(second.id.clone(), "Could not steer".into());
             assert_eq!(
-                view.mono_take_failures(),
+                view.minion_take_failures(),
                 vec![(second.id, "Could not steer".into())]
             );
-            assert!(view.mono_ui.sending.is_none());
+            assert!(view.minion_ui.sending.is_none());
         })
         .unwrap();
 }

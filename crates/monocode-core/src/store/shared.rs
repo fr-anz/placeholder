@@ -30,7 +30,7 @@ pub(super) struct Shared {
     extras: RefCell<BTreeMap<String, String>>,
     extras_db: Option<Connection>,
     snapshots: RefCell<HashMap<i64, HistoryRevision>>,
-    /// The first block sequence of each indexed Mono's row numbering.
+    /// The first block sequence of each indexed Minion's row numbering.
     windows: RefCell<HashMap<i64, i64>>,
     queues: RefCell<HashMap<i64, String>>,
     account_source: RefCell<Option<crate::accounts::Book>>,
@@ -456,7 +456,7 @@ impl Store {
     }
     pub(super) fn shared_setting(&self, key: &str) -> Result<Option<String>, String> {
         if let Some((id, message)) = key
-            .strip_prefix("mono-delivered:")
+            .strip_prefix(super::LEGACY_DELIVERED_PREFIX)
             .and_then(|v| v.split_once(':'))
         {
             if let Ok(id) = id.parse::<i64>() {
@@ -561,8 +561,8 @@ impl Store {
             });
         }
         // Keep the source sidebar's compatibility exception for hidden
-        // /operator launches. A Mono's own hidden conversation cannot be a
-        // listed caller. The UI also checks project/worktree and Mono scope.
+        // /operator launches. A Minion's own hidden conversation cannot be a
+        // listed caller. The UI also checks project/worktree and Minion scope.
         let shown: HashMap<_, _> = result
             .iter()
             .filter(|s| !hidden.contains(&s.id) && s.has_messages)
@@ -972,7 +972,7 @@ impl Store {
             window: window.filter(|w| *w > 0).map(|w| w as u64),
         }))
     }
-    /// The blocks whose rows this store numbers: an indexed Mono's window, or
+    /// The blocks whose rows this store numbers: an indexed Minion's window, or
     /// the whole history of one stored as a blob.
     pub(super) fn shared_blocks(&self, id: i64) -> Result<Vec<Value>, String> {
         let original = self.persisted_session_id(id)?;
@@ -990,13 +990,14 @@ impl Store {
     pub(super) fn shared_load(&self, id: i64) -> Result<Transcript, String> {
         let original = self.persisted_session_id(id)?;
         if let Some(from) = self.shared_window(id, &original)? {
-            // Project one source block at a time. A long Mono must not retain
+            // Project one source block at a time. A long Minion must not retain
             // a second complete JSON history alongside its display rows.
             // The scalar count and the rows share one SQLite read snapshot.
-            let mut query = sql(self.conn.prepare(
-                "SELECT block_json,(SELECT count(*) FROM mono_blocks WHERE session_id=?1 AND seq>=?2)
-                 FROM mono_blocks WHERE session_id=?1 AND seq>=?2 ORDER BY seq",
-            ))?;
+            let mut query = sql(self.conn.prepare(&format!(
+                "SELECT block_json,(SELECT count(*) FROM {blocks} WHERE session_id=?1 AND seq>=?2)
+                 FROM {blocks} WHERE session_id=?1 AND seq>=?2 ORDER BY seq",
+                blocks = super::LEGACY_BLOCKS_TABLE,
+            )))?;
             let mut records = sql(query.query(params![original, from]))?;
             let mut rows = Vec::new();
             let mut digest = HistoryRevision::start(0);
@@ -1035,8 +1036,9 @@ impl Store {
             self.shared_store_indexed_blocks(&original, from, blocks)?;
             // Blocks before the window count too, and were never read.
             sql(self.conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM mono_blocks WHERE session_id=?1 AND is_user=1),
-                 EXISTS(SELECT 1 FROM mono_blocks WHERE session_id=?1 AND is_user=1 AND is_draft=1)",
+                &format!("SELECT EXISTS(SELECT 1 FROM {blocks} WHERE session_id=?1 AND is_user=1),
+                 EXISTS(SELECT 1 FROM {blocks} WHERE session_id=?1 AND is_user=1 AND is_draft=1)",
+                    blocks = super::LEGACY_BLOCKS_TABLE),
                 [&original],
                 |row| Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?)),
             ))?
@@ -1065,14 +1067,16 @@ impl Store {
         from: i64,
         blocks: &[Value],
     ) -> Result<(), String> {
-        let mut query = sql(self.conn.prepare(
-            "SELECT seq,block_id,block_json FROM mono_blocks WHERE session_id=?1 AND seq>=?2 ORDER BY seq",
-        ))?;
+        let mut query = sql(self.conn.prepare(&format!(
+            "SELECT seq,block_id,block_json FROM {blocks} WHERE session_id=?1 AND seq>=?2 ORDER BY seq",
+            blocks = super::LEGACY_BLOCKS_TABLE,
+        )))?;
         let mut old = HashMap::new();
         // New blocks always land inside the window, after everything stored.
         let first = from.max(1);
         let mut max_seq = sql(self.conn.query_row(
-            "SELECT coalesce(max(seq),0) FROM mono_blocks WHERE session_id=?1",
+            &format!("SELECT coalesce(max(seq),0) FROM {blocks} WHERE session_id=?1",
+                blocks = super::LEGACY_BLOCKS_TABLE),
             [original],
             |row| row.get::<_, i64>(0),
         ))?
@@ -1108,11 +1112,13 @@ impl Store {
             // An explicit insertion/reorder changes turn positions. Payloads
             // and block identities survive, in one enclosing transaction.
             sql(self.conn.execute(
-                "DELETE FROM mono_turns WHERE session_id=?1 AND seq>=?2",
+                &format!("DELETE FROM {turns} WHERE session_id=?1 AND seq>=?2",
+                    turns = super::LEGACY_TURNS_TABLE),
                 params![original, from],
             ))?;
             sql(self.conn.execute(
-                "DELETE FROM mono_blocks WHERE session_id=?1 AND seq>=?2",
+                &format!("DELETE FROM {blocks} WHERE session_id=?1 AND seq>=?2",
+                    blocks = super::LEGACY_BLOCKS_TABLE),
                 params![original, from],
             ))?;
             old.clear();
@@ -1121,11 +1127,13 @@ impl Store {
             for (id, (seq, _)) in &old {
                 if !retained.contains(id.as_str()) {
                     sql(self.conn.execute(
-                        "DELETE FROM mono_turns WHERE session_id=?1 AND seq=?2",
+                        &format!("DELETE FROM {turns} WHERE session_id=?1 AND seq=?2",
+                            turns = super::LEGACY_TURNS_TABLE),
                         params![original, seq],
                     ))?;
                     sql(self.conn.execute(
-                        "DELETE FROM mono_blocks WHERE session_id=?1 AND block_id=?2",
+                        &format!("DELETE FROM {blocks} WHERE session_id=?1 AND block_id=?2",
+                            blocks = super::LEGACY_BLOCKS_TABLE),
                         params![original, id],
                     ))?;
                 }
@@ -1157,9 +1165,10 @@ impl Store {
                 .collect::<Vec<_>>()
                 .join("\n")
                 .to_lowercase();
-                sql(self.conn.execute("INSERT INTO mono_blocks(session_id,seq,block_id,block_json,search_text,is_user,is_draft)
+                sql(self.conn.execute(&format!("INSERT INTO {blocks}(session_id,seq,block_id,block_json,search_text,is_user,is_draft)
                     VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(session_id,seq) DO UPDATE SET block_json=excluded.block_json,
                     search_text=excluded.search_text,is_user=excluded.is_user,is_draft=excluded.is_draft",
+                    blocks = super::LEGACY_BLOCKS_TABLE),
                     params![original,seq,id,encode(block)?,search,block["role"]=="user",block["draft"]==true]))?;
             }
             if ix == 0
@@ -1168,7 +1177,8 @@ impl Store {
                 || block.get("monoHabit").is_some()
             {
                 sql(self.conn.execute(
-                    "INSERT OR IGNORE INTO mono_turns(session_id,seq) VALUES(?1,?2)",
+                    &format!("INSERT OR IGNORE INTO {turns}(session_id,seq) VALUES(?1,?2)",
+                        turns = super::LEGACY_TURNS_TABLE),
                     params![original, seq],
                 ))?;
             }
@@ -1497,9 +1507,10 @@ impl Store {
         let tx = sql(self.conn.unchecked_transaction())?;
         for (table, column) in [
             ("session_reminders", "session_id"),
-            ("mono_blocks", "session_id"),
-            ("mono_turns", "session_id"),
-            ("mono_transcripts", "session_id"),
+            // Legacy desktop table names; see the constants on Store.
+            (super::LEGACY_BLOCKS_TABLE, "session_id"),
+            (super::LEGACY_TURNS_TABLE, "session_id"),
+            (super::LEGACY_TRANSCRIPTS_TABLE, "session_id"),
             ("in_flight_sessions", "session_id"),
             ("orchestration_workers", "session_id"),
             ("orchestration_sidebar", "lead_id"),

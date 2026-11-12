@@ -487,8 +487,8 @@ mod tests {
         std::fs::create_dir_all(&repo).unwrap();
         let git = |args: &[&str]| crate::git::git(&repo, args).unwrap();
         git(&["init", "-q"]);
-        git(&["config", "user.email", "mono@example.com"]);
-        git(&["config", "user.name", "Mono"]);
+        git(&["config", "user.email", "minion@example.com"]);
+        git(&["config", "user.name", "Minion"]);
         git(&["config", "commit.gpgsign", "false"]);
         std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
         git(&["add", "a.txt"]);
@@ -529,8 +529,8 @@ mod tests {
             std::fs::create_dir(&repo).unwrap();
             let git = |args: &[&str]| crate::git::git(&repo, args).unwrap();
             git(&["init", "-q"]);
-            git(&["config", "user.email", "mono@example.com"]);
-            git(&["config", "user.name", "Mono"]);
+            git(&["config", "user.email", "minion@example.com"]);
+            git(&["config", "user.name", "Minion"]);
             git(&["config", "commit.gpgsign", "false"]);
             std::fs::write(repo.join("a.txt"), "line\n".repeat(lines)).unwrap();
             git(&["add", "a.txt"]);
@@ -556,8 +556,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let git = |args: &[&str]| crate::git::git(dir.path(), args).unwrap();
         git(&["init", "-q"]);
-        git(&["config", "user.email", "mono@example.com"]);
-        git(&["config", "user.name", "Mono"]);
+        git(&["config", "user.email", "minion@example.com"]);
+        git(&["config", "user.name", "Minion"]);
         std::fs::write(dir.path().join("a.txt"), "one\ntwo\n").unwrap();
         git(&["add", "a.txt"]);
         git(&["commit", "-q", "-m", "Add a"]);

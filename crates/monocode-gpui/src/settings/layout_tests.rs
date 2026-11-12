@@ -140,16 +140,16 @@ fn skills_document_has_its_own_full_height_pane_and_compact_actions(cx: &mut Tes
 }
 
 #[gpui::test]
-fn mono_mascot_is_beside_name_and_sidebar_switch_stays_visible(cx: &mut TestAppContext) {
-    let window = window(Section::Monos, cx);
+fn minion_mascot_is_beside_name_and_sidebar_switch_stays_visible(cx: &mut TestAppContext) {
+    let window = window(Section::Minions, cx);
     window
         .update(cx, |view, _, cx| {
-            view.ctx.monos = vec![MonoSetting {
-                id: "layout-mono".into(),
+            view.ctx.minions = vec![MinionSetting {
+                id: "layout-minion".into(),
                 name: "Big Boss".into(),
                 mascot: "ghost".into(),
                 color: 0xee99bb,
-                projects: vec!["monocode".into(), "mono-web".into()],
+                projects: vec!["monocode".into(), "minion-web".into()],
                 show: false,
                 folders: false,
             }];
@@ -158,14 +158,14 @@ fn mono_mascot_is_beside_name_and_sidebar_switch_stays_visible(cx: &mut TestAppC
         .unwrap();
     let visual = &mut VisualTestContext::from_window(window.into(), cx);
     visual.run_until_parked();
-    let mascot = visual.debug_bounds("settings-mono-mascot").unwrap();
+    let mascot = visual.debug_bounds("settings-minion-mascot").unwrap();
     let switch = visual
-        .debug_bounds("settings-toggle-mono-sidebar-show")
+        .debug_bounds("settings-toggle-minion-sidebar-show")
         .unwrap();
-    let reset = visual.debug_bounds("settings-mono-reset").unwrap();
+    let reset = visual.debug_bounds("settings-minion-reset").unwrap();
     assert_eq!(mascot.size, size(px(16.), px(16.)));
     assert_eq!(switch.size, size(px(36.), px(20.)));
-    let name = visual.debug_bounds("settings-mono-name").unwrap();
+    let name = visual.debug_bounds("settings-minion-name").unwrap();
     assert!(mascot.right() < name.left());
     assert!(mascot.left() < px(200.));
     assert!(switch.left() > px(800.));
@@ -174,7 +174,7 @@ fn mono_mascot_is_beside_name_and_sidebar_switch_stays_visible(cx: &mut TestAppC
     assert!((mascot.top() - switch.top()).abs() < px(4.));
     assert!(
         visual
-            .debug_bounds("settings-toggle-mono-sidebar-folders")
+            .debug_bounds("settings-toggle-minion-sidebar-folders")
             .is_none()
     );
     visual.simulate_click(reset.center(), Default::default());
@@ -189,7 +189,7 @@ fn mono_mascot_is_beside_name_and_sidebar_switch_stays_visible(cx: &mut TestAppC
     visual.simulate_resize(size(px(700.), px(800.)));
     visual.run_until_parked();
     let switch = visual
-        .debug_bounds("settings-toggle-mono-sidebar-show")
+        .debug_bounds("settings-toggle-minion-sidebar-show")
         .unwrap();
     assert_eq!(switch.size, size(px(36.), px(20.)));
     assert!(switch.right() <= px(700.));

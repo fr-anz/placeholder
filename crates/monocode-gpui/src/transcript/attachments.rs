@@ -121,7 +121,7 @@ impl Origin {
 /// A chip covers 36px at up to 3x, so it keeps a sprite this tall, never the
 /// full image. Opening the lightbox decodes the original separately.
 const THUMBNAIL_SIDE: u32 = 108;
-/// A Mono chat's sent photo fits a 240px square, kept at 2x.
+/// A Minion chat's sent photo fits a 240px square, kept at 2x.
 pub(crate) const PHOTO_SIDE: f32 = 240.;
 const PHOTO_PIXELS: u32 = 480;
 
@@ -310,7 +310,7 @@ impl TranscriptView {
             .into_any_element()
     }
 
-    /// A Mono chat's sent images, shown whole above the bubble like photos
+    /// A Minion chat's sent images, shown whole above the bubble like photos
     /// in a messaging app.
     pub(super) fn photo_row(
         &mut self,
@@ -418,7 +418,7 @@ impl TranscriptView {
     }
 }
 
-/// Splits a Mono chat message's files into the images shown whole above its
+/// Splits a Minion chat message's files into the images shown whole above its
 /// bubble and the files that stay inside it.
 pub(super) fn split_photos(files: &[Attachment]) -> (Vec<Attachment>, Vec<Attachment>) {
     files

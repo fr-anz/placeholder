@@ -15,13 +15,13 @@ pub(crate) struct PreparedHistory {
 }
 impl PreparedHistory {
     /// Run on the history loader, before handing its result to the UI.
-    pub(crate) fn new(rows: Vec<Row>, mono: bool) -> Self {
-        let start = if mono {
+    pub(crate) fn new(rows: Vec<Row>, minion: bool) -> Self {
+        let start = if minion {
             page_start(&rows, rows.len())
         } else {
             0
         };
-        let parsers = prepare_parsers(&rows[start..], start, mono);
+        let parsers = prepare_parsers(&rows[start..], start, minion);
         Self { rows, parsers }
     }
 }
@@ -36,14 +36,14 @@ pub(super) fn page_start(rows: &[Row], before: usize) -> usize {
         .map_or(0, |(at, _)| at)
 }
 
-fn prepare_parsers(rows: &[Row], offset: usize, mono: bool) -> HashMap<usize, MarkdownParser> {
+fn prepare_parsers(rows: &[Row], offset: usize, minion: bool) -> HashMap<usize, MarkdownParser> {
     let mut parsers = HashMap::new();
     let mut at = 0;
     while at < rows.len() {
         let end = (at + 1..rows.len())
             .find(|&ix| rows[ix].first)
             .unwrap_or(rows.len());
-        if rows[at].role == "assistant" || (!mono && rows[at].role == "reasoning") {
+        if rows[at].role == "assistant" || (!minion && rows[at].role == "reasoning") {
             let text: String = rows[at..end].iter().map(|row| row.text.as_str()).collect();
             let mut parser = MarkdownParser::new();
             parser.set_text(&text);
@@ -74,7 +74,7 @@ impl TranscriptView {
         self.patch(0, history.rows, cx);
     }
 
-    /// Where turns above the loaded rows come from. A paged Mono loads only
+    /// Where turns above the loaded rows come from. A paged Minion loads only
     /// its newest turns; scrolling up reads the rest a page at a time.
     pub(crate) fn set_history_pager(&mut self, before: Option<i64>, pager: Option<HistoryPager>) {
         self.history_before = before;
@@ -136,10 +136,10 @@ impl TranscriptView {
         // the long-lived conversation or parse its Markdown synchronously.
         let rows = self.source[start..previous].to_vec();
         let epoch = self.highlight_epoch;
-        let mono = self.mono;
+        let minion = self.minion;
         let work = cx
             .background_executor()
-            .spawn(async move { prepare_parsers(&rows, start, mono) });
+            .spawn(async move { prepare_parsers(&rows, start, minion) });
         cx.spawn(async move |this, cx| {
             let parsers = work.await;
             let _ = this.update(cx, |this, cx| {
@@ -167,10 +167,10 @@ impl TranscriptView {
         self.history_loading = true;
         self.list.pause_following_tail();
         let epoch = self.highlight_epoch;
-        let mono = self.mono;
+        let minion = self.minion;
         let work = cx.background_executor().spawn(async move {
             let page = pager(before, all)?;
-            let parsers = prepare_parsers(&page.rows, 0, mono);
+            let parsers = prepare_parsers(&page.rows, 0, minion);
             Ok::<_, String>((page, parsers))
         });
         cx.spawn(async move |this, cx| {
@@ -304,7 +304,7 @@ impl TranscriptView {
                 None => self.burst = None,
             }
         }
-        self.mono_groups.get_mut().clear();
+        self.minion_groups.get_mut().clear();
         self.hover_rows.clear();
         self.hovered_turn = None;
         self.hovered_prompt = None;
@@ -332,7 +332,7 @@ impl TranscriptView {
         self.history_requested = false;
         self.history_search = None;
         self.prepared_parsers.clear();
-        self.mono_groups.get_mut().clear();
+        self.minion_groups.get_mut().clear();
         self.active_provider_turn_id = None;
         self.search_match = None;
         self.anchor_turn = None;
@@ -416,7 +416,7 @@ impl TranscriptView {
         self.history_requested = false;
         self.history_search = None;
         self.prepared_parsers = HashMap::new();
-        self.mono_groups = Default::default();
+        self.minion_groups = Default::default();
         self.attachment_images = HashMap::new();
         self.visuals = HashMap::new();
         self.messages = Vec::new();
@@ -450,7 +450,7 @@ impl TranscriptView {
         true
     }
     pub(crate) fn restore_history(&mut self, rows: Vec<Row>, cx: &mut Context<Self>) {
-        self.restore_prepared_history(PreparedHistory::new(rows, self.mono), cx);
+        self.restore_prepared_history(PreparedHistory::new(rows, self.minion), cx);
     }
     pub(crate) fn restore_prepared_history(
         &mut self,
@@ -467,7 +467,7 @@ impl TranscriptView {
         self.history_start = 0;
         self.history_loading = false;
         self.history_requested = false;
-        self.mono_groups.get_mut().clear();
+        self.minion_groups.get_mut().clear();
         self.list.reset(1);
         self.install_prepared_history(history, cx);
         if let Some(position) = position {
@@ -495,7 +495,7 @@ mod tests {
     use super::*;
     use gpui::TestAppContext;
 
-    fn long_mono(turns: usize) -> Vec<Row> {
+    fn long_minion(turns: usize) -> Vec<Row> {
         (0..turns).flat_map(|turn| [
             Row { role: "user".into(), text: format!("Question {turn}"), first: true, sent_at: Some(turn as u64) },
             Row { role: "assistant".into(), text: format!("Answer **{turn}**.\n\nA second paragraph with [a link](https://example.com)."), first: true, sent_at: None },
@@ -503,15 +503,15 @@ mod tests {
     }
 
     #[gpui::test]
-    fn long_mono_initial_display_and_live_patches_keep_history_unmaterialized(
+    fn long_minion_initial_display_and_live_patches_keep_history_unmaterialized(
         cx: &mut TestAppContext,
     ) {
-        let source = long_mono(5_000);
+        let source = long_minion(5_000);
         let prepared = PreparedHistory::new(source, true);
         assert_eq!(prepared.parsers.len(), PAGE_TURNS);
         let view = cx.new(|_| TranscriptView::new());
         view.update(cx, |view, cx| {
-            view.mono_mode("mono", 0xffffff, "Mono");
+            view.minion_mode("minion", 0xffffff, "Minion");
             view.install_prepared_history(prepared, cx);
             assert_eq!(view.source.len(), 10_000);
             assert_eq!(view.messages.len(), PAGE_TURNS * 2);
@@ -525,7 +525,7 @@ mod tests {
                 "the archived source remains available"
             );
             view.streaming = true;
-            let mut next = long_mono(1);
+            let mut next = long_minion(1);
             next[0].text = "New question".into();
             next[1].text = "New answer".into();
             view.patch(10_000, next, cx);
@@ -537,8 +537,8 @@ mod tests {
     }
 
     #[gpui::test]
-    fn internal_mono_reports_also_keep_the_initial_display_bounded(cx: &mut TestAppContext) {
-        let mut rows = long_mono(1_000);
+    fn internal_minion_reports_also_keep_the_initial_display_bounded(cx: &mut TestAppContext) {
+        let mut rows = long_minion(1_000);
         for row in &mut rows {
             if row.is_prompt() {
                 row.role = "mono-system".into();
@@ -546,7 +546,7 @@ mod tests {
         }
         let view = cx.new(|_| TranscriptView::new());
         view.update(cx, |view, cx| {
-            view.mono_mode("mono", 0xffffff, "Mono");
+            view.minion_mode("minion", 0xffffff, "Minion");
             view.install_prepared_history(PreparedHistory::new(rows, true), cx);
             assert_eq!(view.messages.len(), PAGE_TURNS * 2);
             assert_eq!(view.messages[0].start, 1_980);
@@ -561,29 +561,29 @@ mod tests {
     }
 
     #[gpui::test]
-    fn mono_group_cache_follows_changed_prompt_boundaries(cx: &mut TestAppContext) {
+    fn minion_group_cache_follows_changed_prompt_boundaries(cx: &mut TestAppContext) {
         let view = cx.new(|_| TranscriptView::new());
         view.update(cx, |view, cx| {
-            view.mono_mode("mono", 0xffffff, "Mono");
-            let mut rows = long_mono(2);
+            view.minion_mode("minion", 0xffffff, "Minion");
+            let mut rows = long_minion(2);
             rows[2].role = "mono-system".into();
             view.patch(0, rows, cx);
-            assert_eq!(view.mono_group_start(3), 1);
+            assert_eq!(view.minion_group_start(3), 1);
             let mut prompt = view.source[2].clone();
             prompt.role = "user".into();
             view.patch(2, vec![prompt], cx);
-            assert_eq!(view.mono_group_start(3), 3);
+            assert_eq!(view.minion_group_start(3), 3);
         });
     }
 
     #[gpui::test]
-    fn older_mono_pages_preserve_the_reading_anchor_and_search_reaches_archived_rows(
+    fn older_minion_pages_preserve_the_reading_anchor_and_search_reaches_archived_rows(
         cx: &mut TestAppContext,
     ) {
         let view = cx.new(|_| TranscriptView::new());
         let (key, offset) = view.update(cx, |view, cx| {
-            view.mono_mode("mono", 0xffffff, "Mono");
-            view.install_prepared_history(PreparedHistory::new(long_mono(35), true), cx);
+            view.minion_mode("minion", 0xffffff, "Minion");
+            view.install_prepared_history(PreparedHistory::new(long_minion(35), true), cx);
             view.list.pause_following_tail();
             let offset = ListOffset {
                 item_ix: 4,
@@ -616,11 +616,11 @@ mod tests {
     }
 
     #[gpui::test]
-    fn paged_mono_reads_older_turns_above_a_window_whose_rows_keep_their_numbers(
+    fn paged_minion_reads_older_turns_above_a_window_whose_rows_keep_their_numbers(
         cx: &mut TestAppContext,
     ) {
         use monocode_core::agent::TurnInfo;
-        let full = long_mono(35);
+        let full = long_minion(35);
         // A store whose window starts at row 50 and whose cursors are rows.
         let pager: HistoryPager = {
             let full = full.clone();
@@ -643,7 +643,7 @@ mod tests {
         };
         let view = cx.new(|_| TranscriptView::new());
         let key = view.update(cx, |view, cx| {
-            view.mono_mode("mono", 0xffffff, "Mono");
+            view.minion_mode("minion", 0xffffff, "Minion");
             view.install_prepared_history(PreparedHistory::new(full[50..].to_vec(), true), cx);
             view.set_history_pager(Some(50), Some(pager));
             view.set_turns(HashMap::from([(
@@ -679,7 +679,7 @@ mod tests {
             assert_eq!(restored.offset_in_item, px(5.));
 
             // Live patches stay in the store's numbering.
-            view.patch(20, long_mono(1)[..1].to_vec(), cx);
+            view.patch(20, long_minion(1)[..1].to_vec(), cx);
             assert_eq!(view.source_rows().len(), 21);
             assert_eq!(view.history_rows()[40].text, "Question 0");
 
@@ -705,13 +705,13 @@ mod tests {
     }
 
     #[gpui::test]
-    fn replacing_history_discards_an_in_flight_mono_page(cx: &mut TestAppContext) {
+    fn replacing_history_discards_an_in_flight_minion_page(cx: &mut TestAppContext) {
         let view = cx.new(|_| TranscriptView::new());
         view.update(cx, |view, cx| {
-            view.mono_mode("mono", 0xffffff, "Mono");
-            view.install_prepared_history(PreparedHistory::new(long_mono(25), true), cx);
+            view.minion_mode("minion", 0xffffff, "Minion");
+            view.install_prepared_history(PreparedHistory::new(long_minion(25), true), cx);
             view.load_older_history(cx);
-            view.replace_history(long_mono(1), cx);
+            view.replace_history(long_minion(1), cx);
         });
         cx.run_until_parked();
         view.update(cx, |view, _| {

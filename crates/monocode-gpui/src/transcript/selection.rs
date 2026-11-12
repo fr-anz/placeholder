@@ -592,8 +592,8 @@ impl TranscriptView {
                 d.child(
                     button("selection-chat", "Add to chat", "comment-add").on_click(cx.listener(
                         move |this, _, window, cx| {
-                            if this.mono {
-                                cx.emit(MonoResponseAction::Quote {
+                            if this.minion {
+                                cx.emit(MinionResponseAction::Quote {
                                     text: text.clone(),
                                     window: window.window_handle(),
                                 })

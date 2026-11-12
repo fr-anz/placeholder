@@ -14,7 +14,7 @@ pub(crate) enum Section {
     Providers,
     Mcp,
     Skills,
-    Monos,
+    Minions,
     Roles,
     Inbox,
     Archive,
@@ -38,7 +38,7 @@ pub(crate) const GROUPS: [(&str, &[Section]); 3] = [
             Section::Providers,
             Section::Mcp,
             Section::Skills,
-            Section::Monos,
+            Section::Minions,
             Section::Roles,
         ],
     ),
@@ -58,7 +58,7 @@ impl Section {
         Section::Providers,
         Section::Mcp,
         Section::Skills,
-        Section::Monos,
+        Section::Minions,
         Section::Roles,
         Section::Inbox,
         Section::Archive,
@@ -74,7 +74,7 @@ impl Section {
             Section::Providers => "providers",
             Section::Mcp => "mcp",
             Section::Skills => "skills",
-            Section::Monos => "monos",
+            Section::Minions => "minions",
             Section::Roles => "roles",
             Section::Inbox => "inbox",
             Section::Archive => "archive",
@@ -91,7 +91,7 @@ impl Section {
             Section::Providers => "Providers",
             Section::Mcp => "MCP",
             Section::Skills => "Skills",
-            Section::Monos => "Monos",
+            Section::Minions => "Minions",
             Section::Roles => "Agents",
             Section::Inbox => "Inbox",
             Section::Archive => "Archive",
@@ -120,7 +120,7 @@ impl Section {
             Section::Skills => {
                 "Discover and manage file skills from project, personal, and harness folders."
             }
-            Section::Monos => "The resident agent beside your tabs, and which projects have one.",
+            Section::Minions => "The resident agent beside your tabs, and which projects have one.",
             Section::Roles => "",
             Section::Inbox => {
                 "Manage Inbox services and notification preferences for each project."
@@ -147,7 +147,7 @@ impl Section {
                 "tools servers connections oauth authenticate login claude codex cursor opencode"
             }
             Section::Skills => "skill instructions prompt",
-            Section::Monos => "mono resident agent mascot claim project title bar",
+            Section::Minions => "minion resident agent mascot claim project title bar",
             Section::Roles => {
                 "agents worker role scout implementer reviewer orchestrator orchestration model provider subscription effort thinking reasoning approval"
             }
@@ -169,7 +169,7 @@ impl Section {
             Section::Providers => "bot",
             Section::Mcp => "globe",
             Section::Skills => "sparkles",
-            Section::Monos => "ghost",
+            Section::Minions => "ghost",
             Section::Roles => "account-user",
             Section::Inbox => "inbox-hi",
             Section::Archive => "archive",
@@ -205,22 +205,22 @@ pub(crate) const INDEX: &[(&str, Section, &str, &str)] = &[
         "claude tools connections oauth authenticate login add remove",
     ),
     (
-        "monos-enabled",
-        Section::Monos,
-        "Show monos",
-        "mono agent rail hide",
+        "minions-enabled",
+        Section::Minions,
+        "Show Minions",
+        "minion agent rail hide",
     ),
     (
-        "rail-monos-pinned",
-        Section::Monos,
-        "Pin monos to the icon rail",
-        "mono rail compact collapsed icons top divider project picker",
+        "rail-minions-pinned",
+        Section::Minions,
+        "Pin Minions to the icon rail",
+        "minion rail compact collapsed icons top divider project picker",
     ),
     (
-        "mono-list",
-        Section::Monos,
-        "Your monos",
-        "mono reset soul name projects sessions sidebar visibility hidden show",
+        "minion-list",
+        Section::Minions,
+        "Your Minions",
+        "minion reset soul name projects sessions sidebar visibility hidden show",
     ),
     (
         "project-worktrees",

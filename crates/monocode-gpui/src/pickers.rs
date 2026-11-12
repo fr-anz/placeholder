@@ -1426,12 +1426,12 @@ impl ModelList {
 
 pub(crate) enum ProjectPicked {
     Project(String),
-    Mono(String),
+    Minion(String),
     New,
     Remote,
 }
 
-pub(crate) struct PickerMono {
+pub(crate) struct PickerMinion {
     pub id: String,
     pub name: String,
     pub mascot: String,
@@ -1444,8 +1444,8 @@ pub(crate) struct ProjectPicker {
     appearance:
         std::collections::HashMap<String, monocode_core::project_appearance::ProjectAppearance>,
     projects: Vec<String>,
-    monos: Vec<PickerMono>,
-    active_mono: Option<String>,
+    minions: Vec<PickerMinion>,
+    active_minion: Option<String>,
     current: String,
     active: usize,
     allow_remote: bool,
@@ -1468,8 +1468,8 @@ impl ProjectPicker {
         Self {
             appearance: Default::default(),
             projects,
-            monos: Vec::new(),
-            active_mono: None,
+            minions: Vec::new(),
+            active_minion: None,
             current: current.into(),
             active: 0,
             allow_remote: false,
@@ -1494,26 +1494,26 @@ impl ProjectPicker {
         self.appearance = appearance;
         self
     }
-    pub(crate) fn monos(
+    pub(crate) fn minions(
         mut self,
-        monos: Vec<PickerMono>,
+        minions: Vec<PickerMinion>,
         active: Option<String>,
         cx: &mut Context<Self>,
     ) -> Self {
-        self.active_mono = active.filter(|id| monos.iter().any(|mono| &mono.id == id));
-        if !monos.is_empty() {
+        self.active_minion = active.filter(|id| minions.iter().any(|minion| &minion.id == id));
+        if !minions.is_empty() {
             self.search.update(cx, |search, cx| {
-                search.set_placeholder("Search monos and projects...", cx)
+                search.set_placeholder("Search minions and projects...", cx)
             });
         }
-        self.monos = monos;
+        self.minions = minions;
         self
     }
-    fn matching_monos(&self, cx: &gpui::App) -> Vec<&PickerMono> {
+    fn matching_minions(&self, cx: &gpui::App) -> Vec<&PickerMinion> {
         let query = self.search.read(cx).content.trim().to_lowercase();
-        self.monos
+        self.minions
             .iter()
-            .filter(|mono| mono.name.to_lowercase().contains(&query))
+            .filter(|minion| minion.name.to_lowercase().contains(&query))
             .collect()
     }
     fn label(&self, path: &str) -> String {
@@ -1535,20 +1535,20 @@ impl ProjectPicker {
             .collect()
     }
     fn step(&mut self, direction: isize, cx: &mut Context<Self>) {
-        let count = self.matching_monos(cx).len() + self.matches(cx).len();
+        let count = self.matching_minions(cx).len() + self.matches(cx).len();
         if count > 0 {
             self.active = (self.active as isize + direction).clamp(0, count as isize - 1) as usize;
             cx.notify();
         }
     }
     fn pick(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let monos = self.matching_monos(cx);
-        if let Some(mono) = monos.get(ix) {
-            cx.emit(ProjectPicked::Mono(mono.id.clone()));
+        let minions = self.matching_minions(cx);
+        if let Some(minion) = minions.get(ix) {
+            cx.emit(ProjectPicked::Minion(minion.id.clone()));
         } else if let Some(path) = self
             .matches(cx)
             .into_iter()
-            .nth(ix.saturating_sub(monos.len()))
+            .nth(ix.saturating_sub(minions.len()))
         {
             cx.emit(ProjectPicked::Project(path));
         }
@@ -1571,22 +1571,22 @@ impl Render for ProjectPicker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let matches = self.matches(cx);
         let focused = self.search.focus_handle(cx).is_focused(window);
-        let matching_monos = self.matching_monos(cx);
-        let mono_count = matching_monos.len();
-        let mut rows: Vec<AnyElement> = matching_monos
+        let matching_minions = self.matching_minions(cx);
+        let minion_count = matching_minions.len();
+        let mut rows: Vec<AnyElement> = matching_minions
             .into_iter()
             .enumerate()
-            .map(|(ix, mono)| {
+            .map(|(ix, minion)| {
                 let active = self.active == ix;
-                let current = self.active_mono.as_ref() == Some(&mono.id);
+                let current = self.active_minion.as_ref() == Some(&minion.id);
                 div()
-                    .id(("project-picker-mono", ix))
+                    .id(("project-picker-minion", ix))
                     .debug_selector({
-                        let id = mono.id.clone();
-                        move || format!("project-picker-mono-{id}")
+                        let id = minion.id.clone();
+                        move || format!("project-picker-minion-{id}")
                     })
                     .role(Role::ListBoxOption)
-                    .aria_label(format!("{}, Mono", mono.name))
+                    .aria_label(format!("{}, Minion", minion.name))
                     .aria_selected(current)
                     .cursor_pointer()
                     .flex_shrink_0()
@@ -1613,9 +1613,9 @@ impl Render for ProjectPicker {
                                     .text_color(content(1.))
                                     .into_any_element()
                             } else {
-                                crate::monos::avatar::avatar(
-                                    &mono.mascot,
-                                    mono.color,
+                                crate::minions::avatar::avatar(
+                                    &minion.mascot,
+                                    minion.color,
                                     "idle",
                                     16.,
                                     true,
@@ -1629,14 +1629,14 @@ impl Render for ProjectPicker {
                             .truncate()
                             .text_size(px(13.))
                             .font_weight(gpui::FontWeight::MEDIUM)
-                            .child(mono.name.clone()),
+                            .child(minion.name.clone()),
                     )
                     .child(
                         div()
                             .flex_shrink_0()
                             .text_size(px(11.))
                             .text_color(content(0.4))
-                            .child("Mono"),
+                            .child("Minion"),
                     )
                     .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
                         if *hovered {
@@ -1649,9 +1649,9 @@ impl Render for ProjectPicker {
             })
             .collect();
         rows.extend(matches.into_iter().enumerate().map(|(project_ix, path)| {
-            let ix = mono_count + project_ix;
+            let ix = minion_count + project_ix;
             let active = self.active == ix;
-            let current = self.active_mono.is_none() && path == self.current;
+            let current = self.active_minion.is_none() && path == self.current;
             div()
                 .id(("project-option", ix))
                 .debug_selector(move || format!("project-picker-project-{project_ix}"))
@@ -1772,10 +1772,10 @@ impl Render for ProjectPicker {
                 div()
                     .id("project-list")
                     .role(Role::ListBox)
-                    .aria_label(if self.monos.is_empty() {
+                    .aria_label(if self.minions.is_empty() {
                         "Projects"
                     } else {
-                        "Monos and projects"
+                        "Minions and projects"
                     })
                     .flex_1()
                     .min_h_0()
@@ -1792,10 +1792,10 @@ impl Render for ProjectPicker {
                                 .justify_center()
                                 .text_size(px(12.))
                                 .text_color(content(0.45))
-                                .child(if self.monos.is_empty() {
+                                .child(if self.minions.is_empty() {
                                     "No projects found"
                                 } else {
-                                    "No monos or projects found"
+                                    "No minions or projects found"
                                 }),
                         )
                     })

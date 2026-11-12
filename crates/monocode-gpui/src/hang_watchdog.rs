@@ -192,7 +192,7 @@ mod tests {
     fn captures_private_stack_reports_and_keeps_only_five() {
         let directory = std::env::temp_dir().join(format!(
             "monocode-watchdog-test-{}",
-            monocode_core::mono::new_id()
+            monocode_core::minion::new_id()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         for i in 0..MAX_REPORTS {

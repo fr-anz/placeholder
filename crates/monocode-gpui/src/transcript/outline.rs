@@ -89,7 +89,7 @@ impl TranscriptView {
     }
     /// Read after the list lays out, like the React rail's deferred measure.
     pub(super) fn update_outline(&mut self, cx: &mut Context<Self>) {
-        if self.mono || !self.visible || self.viewport.size.height <= px(0.) {
+        if self.minion || !self.visible || self.viewport.size.height <= px(0.) {
             return;
         }
         let active = self.measure_active();
@@ -156,7 +156,7 @@ impl TranscriptView {
         cx.notify();
     }
     pub(super) fn outline_visible_at(&self, width: gpui::Pixels) -> bool {
-        !self.mono
+        !self.minion
             && !self.document
             && self.visible
             && self.outline.prompts.len() >= MIN_PROMPTS

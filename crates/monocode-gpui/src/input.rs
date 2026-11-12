@@ -414,8 +414,8 @@ impl Input {
         input.height = LINE_HEIGHT;
         input
     }
-    /// The Mono chat's composer, as tall as the session composer.
-    pub(crate) fn mono_composer(&mut self, name: &str, cx: &mut Context<Self>) {
+    /// The Minion chat's composer, as tall as the session composer.
+    pub(crate) fn minion_composer(&mut self, name: &str, cx: &mut Context<Self>) {
         if self.min_height != LINE_HEIGHT {
             self.height = LINE_HEIGHT;
         }

@@ -1,5 +1,5 @@
-//! Shared project actions for ordinary Operator threads and resident Monos.
-//! Visibility and Mono-only capabilities belong to the caller, not launch JSON.
+//! Shared project actions for ordinary Operator threads and resident Minions.
+//! Visibility and Minion-only capabilities belong to the caller, not launch JSON.
 use crate::{
     agent::{AccessMode, Settings},
     catalog::{Model, ModelControl},
@@ -35,11 +35,11 @@ pub fn validate_operator(action: &str, input: &Value) -> Result<(), String> {
             | "board.add"
             | "board.start"
     ) {
-        return Err("Unknown Operator action. Run app help for project actions; memory, habits and artifacts require a Mono.".into());
+        return Err("Unknown Operator action. Run app help for project actions; memory, habits and artifacts require a Minion.".into());
     }
-    crate::mono::api::validate(action, input)?;
+    crate::minion::api::validate(action, input)?;
     if input["notifyOnComplete"] == true {
-        return Err("Completion notifications are only available in a Mono's chat".into());
+        return Err("Completion notifications are only available in a Minion's chat".into());
     }
     Ok(())
 }
@@ -63,12 +63,12 @@ pub fn prompt(input: &Value) -> Result<String, String> {
     Ok(prompt)
 }
 pub fn fingerprint(action: &str, input: &Value) -> String {
-    crate::mono::files::content_hash(&format!("{action}:{input}"))
+    crate::minion::files::content_hash(&format!("{action}:{input}"))
 }
 pub fn receipt_key(caller: i64, request: &str) -> String {
     format!(
         "operator-app-receipt:{caller}:{}",
-        crate::mono::files::content_hash(request)
+        crate::minion::files::content_hash(request)
     )
 }
 
@@ -157,7 +157,7 @@ pub fn models_catalog(profiles: Vec<(Kind, crate::accounts::Profile)>) -> Result
 }
 
 /// Account choice is supplied by the caller; transports and credentials are never
-/// inherited from a Mono or an Operator grant into its child.
+/// inherited from a Minion or an Operator grant into its child.
 pub fn launch_settings(
     input: &Value,
     source_provider: &str,
@@ -165,7 +165,7 @@ pub fn launch_settings(
     kind: Kind,
     models: &[Model],
 ) -> Result<Settings, String> {
-    crate::mono::api::validate("sessions.start", input)?;
+    crate::minion::api::validate("sessions.start", input)?;
     let requested =
         optional_text(input, "model", 512)?.and_then(|m| crate::store::native_model(&m, kind.id()));
     let changing = source_provider != kind.id()
@@ -250,9 +250,9 @@ pub fn launch_settings(
     if input.get("worktreeCwd").is_some() && workspace == "worktree" {
         return Err("worktreeCwd requires workspaceMode current".into());
     }
-    settings.mono = None;
-    settings.mono_message_id = None;
-    settings.mono_sent_at = None;
+    settings.minion = None;
+    settings.minion_message_id = None;
+    settings.minion_sent_at = None;
     settings.operator = false;
     settings.operator_enabled = false;
     settings.orchestrator = false;
@@ -459,7 +459,7 @@ pub fn notes_action(
     let id = current.map(|n| n.id.clone()).or(id).unwrap_or_else(|| {
         format!(
             "app-note-{caller}-{}",
-            crate::mono::files::content_hash(request)
+            crate::minion::files::content_hash(request)
         )
     });
     let note = store.upsert_note(&crate::notes::NoteUpsert {

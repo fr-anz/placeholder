@@ -1,10 +1,10 @@
-//! Operator's project actions. Monos share the launch/request helpers but keep
+//! Operator's project actions. Minions share the launch/request helpers but keep
 //! their own project grants, visibility preference and completion bookkeeping.
 use super::*;
 use monocode_core::{
     agent::Settings,
     app_access as app,
-    mono::bridge::{Call, Server},
+    minion::bridge::{Call, Server},
 };
 use serde_json::{Value, json};
 
@@ -258,9 +258,9 @@ impl Shell {
             && (id == caller
                 || self.orchestration_worker(id)
                 || self
-                    .monos
+                    .minions
                     .as_ref()
-                    .is_some_and(|m| m.read(cx).is_mono_session(id)))
+                    .is_some_and(|m| m.read(cx).is_minion_session(id)))
         {
             return Err("Only other regular project sessions can be managed here".into());
         }
@@ -328,7 +328,7 @@ impl Shell {
             "sessions.list" => Ok(
                 json!({"cwd":project,"sessions":self.order.iter().filter_map(|id|{
                 let metadata=self.session_metadata(*id,cx);
-                if metadata.summary.cwd!=project || self.monos.as_ref().is_some_and(|m|m.read(cx).hidden_session(*id)) || self.orchestration_worker(*id){return None;}
+                if metadata.summary.cwd!=project || self.minions.as_ref().is_some_and(|m|m.read(cx).hidden_session(*id)) || self.orchestration_worker(*id){return None;}
                 let live=self.sessions.get(id).map(|v|v.read(cx));
                 Some(json!({"id":id,"sessionId":id,"title":metadata.summary.title,"harness":metadata.summary.provider,"model":live.and_then(|v|v.settings.model.clone()).or_else(||self.session_details.get(id).and_then(|m|m.model.clone())),"busy":metadata.busy,"hasDraft":live.is_some_and(|v|v.has_saved_draft() || !v.input.read(cx).content.is_empty()) || self.draft_sessions.contains(id),"archived":metadata.summary.archived}))
             }).collect::<Vec<_>>()}),
@@ -555,7 +555,7 @@ impl Shell {
                             } else {
                                 let folder = if let Some(name) = name {
                                     let folder = groups
-                                        .create_folder(&[id], monocode_core::mono::new_id())
+                                        .create_folder(&[id], monocode_core::minion::new_id())
                                         .unwrap();
                                     groups.rename_folder(&folder, &name);
                                     folder

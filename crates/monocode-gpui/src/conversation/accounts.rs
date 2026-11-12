@@ -197,7 +197,7 @@ impl Conversation {
         }
         self.status = "Ready".into();
         self.save_settings(cx);
-        if self.settings.mono.is_some() {
+        if self.settings.minion.is_some() {
             cx.emit(UsageResumed);
             cx.emit(SessionChanged);
             cx.notify();
@@ -218,7 +218,7 @@ impl Conversation {
         }
         self.save_settings(cx);
         self.save_follow_ups(cx);
-        if self.settings.mono.is_some() {
+        if self.settings.minion.is_some() {
             cx.emit(UsageResumed);
         }
         cx.emit(SessionChanged);
@@ -252,7 +252,7 @@ impl Conversation {
         let thread = self.summary.provider_id.clone();
         let expected = thread.clone();
         let kind = Kind::from_id(&self.summary.provider);
-        let can_transfer = !(kind == Kind::Codex && self.settings.mono.is_some());
+        let can_transfer = !(kind == Kind::Codex && self.settings.minion.is_some());
         let to = profile.clone();
         self.account_switching = true;
         let work = cx.background_executor().spawn(async move {
@@ -348,7 +348,7 @@ impl Conversation {
         self.refresh_catalog(cx);
         cx.notify();
     }
-    pub(super) fn usage_notice(&self, mono: bool, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn usage_notice(&self, minion: bool, cx: &mut Context<Self>) -> Option<AnyElement> {
         let limit = self.settings.usage_limit.as_ref()?;
         let now = usage::now_ms();
         let waiting = limit.waiting(now);
@@ -358,11 +358,11 @@ impl Conversation {
         let reset = usage_reset_label(limit, now);
         let mut controls = div()
             .flex()
-            .when(!mono, |d| d.flex_shrink_0())
+            .when(!minion, |d| d.flex_shrink_0())
             .items_center()
-            .gap(px(if mono { 12. } else { 8. }))
-            .when(mono, |d| d.flex_wrap().gap_y(px(6.)))
-            .when(mono, |d| {
+            .gap(px(if minion { 12. } else { 8. }))
+            .when(minion, |d| d.flex_wrap().gap_y(px(6.)))
+            .when(minion, |d| {
                 d.child(
                     usage_button(
                         "usage-model-picker",
@@ -402,11 +402,11 @@ impl Conversation {
                     "Choose another account",
                     false,
                     switching,
-                    mono,
+                    minion,
                 )
                 .relative()
                 .gap(px(4.))
-                .when(mono, |d| {
+                .when(minion, |d| {
                     d.h(px(26.))
                         .text_size(px(11.))
                         .text_color(content(1.))
@@ -415,7 +415,7 @@ impl Conversation {
                 .child(self.account_anchor.probe())
                 .child(if switching {
                     "Switching…"
-                } else if mono {
+                } else if minion {
                     "Choose another account"
                 } else {
                     "Switch account"
@@ -450,13 +450,13 @@ impl Conversation {
                     switching,
                     false,
                 )
-                .when(mono && !(waiting && armed), |d| d.text_color(content(0.6)))
+                .when(minion && !(waiting && armed), |d| d.text_color(content(0.6)))
                 .child(
                     icon(if waiting { "clock" } else { "play" }, 14.)
                         .text_color(if waiting && armed {
                             gpui::rgb(AMBER_400).into()
                         } else {
-                            content(if mono { 0.6 } else { 0.55 })
+                            content(if minion { 0.6 } else { 0.55 })
                         })
                         .group_hover("resume-usage-limit", |s| s.text_color(content(1.))),
                 )
@@ -474,7 +474,7 @@ impl Conversation {
                     }))
                 }),
             )
-            .when(!mono, |controls| {
+            .when(!minion, |controls| {
                 controls.child(
                     usage_button(
                         "dismiss-usage-limit",
@@ -508,7 +508,7 @@ impl Conversation {
                 div()
                     .text_size(px(12.))
                     .text_color(content(0.85))
-                    .child(if mono {
+                    .child(if minion {
                         format!("{} usage limit reached", kind.label())
                     } else {
                         "Usage limit reached".into()
@@ -521,8 +521,8 @@ impl Conversation {
             .aria_label("Usage limit reached")
             .text_size(px(12.))
             .line_height(px(16.))
-            .text_color(content(if mono { 0.6 } else { 0.55 }));
-        Some(if mono {
+            .text_color(content(if minion { 0.6 } else { 0.55 }));
+        Some(if minion {
             notice.mx(px(6.)).mb(px(8.)).rounded(px(8.)).border_1().border_color(tint(AMBER_400,0.2)).bg(tint(AMBER_400,0.06))
                 .px(px(12.)).py(px(10.)).child(heading)
                 .child(div().pl(px(22.))
@@ -820,7 +820,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn subscription_limits_persist_and_release_a_mono_only_once_when_armed(
+    fn subscription_limits_persist_and_release_a_minion_only_once_when_armed(
         cx: &mut gpui::TestAppContext,
     ) {
         let store = Arc::new(std::sync::Mutex::new(
@@ -831,8 +831,8 @@ mod tests {
         let view = cx.new(|cx| Conversation::new(summary, store.clone(), cx));
         cx.run_until_parked();
         view.update(cx, |v, cx| {
-            v.settings.mono = Some(monocode_core::agent::MonoContext {
-                mono: Default::default(),
+            v.settings.minion = Some(monocode_core::agent::MinionContext {
+                minion: Default::default(),
                 root: "/fixture".into(),
                 executable: "/fixture/binary".into(),
             });

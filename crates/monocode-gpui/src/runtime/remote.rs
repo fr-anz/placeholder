@@ -41,7 +41,7 @@ fn update(status: impl Into<String>, finished: bool) -> Update {
     }
 }
 fn command(kind: &str, session_id: Option<&str>) -> Value {
-    let mut value = json!({"type":kind,"commandId":monocode_core::mono::new_id()});
+    let mut value = json!({"type":kind,"commandId":monocode_core::minion::new_id()});
     if let Some(id) = session_id {
         value["sessionId"] = json!(id);
     }

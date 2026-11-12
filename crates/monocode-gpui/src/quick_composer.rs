@@ -743,7 +743,7 @@ impl QuickComposer {
             let dir = paste_staging_dir();
             let path = dir.join(format!(
                 "pasted-{}.{}",
-                monocode_core::mono::new_id(),
+                monocode_core::minion::new_id(),
                 image.format().extension()
             ));
             match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, image.bytes())) {
@@ -786,7 +786,7 @@ impl QuickComposer {
         crate::traffic_lights::hide(window);
         let path = std::env::temp_dir()
             .join("monocode-quick-composer")
-            .join(format!("screenshot-{}.png", monocode_core::mono::new_id()));
+            .join(format!("screenshot-{}.png", monocode_core::minion::new_id()));
         let work = cx.background_executor().spawn({
             let path = path.clone();
             async move {

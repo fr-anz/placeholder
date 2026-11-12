@@ -9,7 +9,7 @@ enum Surface {
     Notes,
     Automations,
     Search,
-    Mono,
+    Minion,
 }
 
 impl Surface {
@@ -27,15 +27,15 @@ impl Surface {
                 shell.open_automations(window, cx);
             }
             Self::Search => shell.open_app_search(window, cx),
-            Self::Mono => {
+            Self::Minion => {
                 let project = shell.workspace.project.clone();
                 let session = shell.workspace.active;
-                shell.mono_manager().update(cx, |monos, cx| {
-                    let id = monos.roster.create(vec![project]).id.clone();
-                    let mono = monos.roster.get_mut(&id).unwrap();
-                    mono.name = "Parity Mono".into();
-                    mono.session_id = session;
-                    monos.open(&id, window, cx);
+                shell.minion_manager().update(cx, |minions, cx| {
+                    let id = minions.roster.create(vec![project]).id.clone();
+                    let minion = minions.roster.get_mut(&id).unwrap();
+                    minion.name = "Parity Minion".into();
+                    minion.session_id = session;
+                    minions.open(&id, window, cx);
                 });
             }
         }
@@ -46,15 +46,15 @@ impl Surface {
             Self::Inbox | Self::Notes | Self::Automations => shell.close_app_view(window, cx),
             Self::Search => shell.close_app_search(window, cx),
             // Returning to a conversation is the same route used by the
-            // original project rail and by opening a Mono's launched session.
-            Self::Mono => shell.open(session, window, cx),
+            // original project rail and by opening a Minion's launched session.
+            Self::Minion => shell.open(session, window, cx),
         }
     }
 
     fn header(self) -> &'static str {
         match self {
             Self::Search => "app-search-header",
-            Self::Mono => "classic-mono-title",
+            Self::Minion => "classic-minion-title",
             _ => "classic-app-surface-header",
         }
     }
@@ -62,7 +62,7 @@ impl Surface {
     fn icon_left(self, visual: &mut VisualTestContext) -> Pixels {
         let (label, offset) = match self {
             Self::Search => ("app-search-field", 22.),
-            Self::Mono => ("original-mono-name", 24.),
+            Self::Minion => ("original-minion-name", 24.),
             _ => ("classic-app-surface-title", 22.),
         };
         visual.debug_bounds(label).unwrap().left() - px(offset)
@@ -136,7 +136,7 @@ fn original_project_plus_offers_local_and_remote_folders(cx: &mut TestAppContext
 }
 
 #[gpui::test]
-fn original_collapsed_picker_selects_monos_and_projects_with_search_and_keyboard(
+fn original_collapsed_picker_selects_minions_and_projects_with_search_and_keyboard(
     cx: &mut TestAppContext,
 ) {
     cx.update(crate::input::bind);
@@ -144,7 +144,7 @@ fn original_collapsed_picker_selects_monos_and_projects_with_search_and_keyboard
     let visual = &mut VisualTestContext::from_window(window.into(), cx);
     let ids = window
         .update(visual, |shell, _, cx| {
-            let ids = shell.mono_manager().update(cx, |manager, cx| {
+            let ids = shell.minion_manager().update(cx, |manager, cx| {
                 let mut ids = Vec::new();
                 for (name, project) in [
                     ("Alpha assistant", "/work/monocode"),
@@ -171,8 +171,8 @@ fn original_collapsed_picker_selects_monos_and_projects_with_search_and_keyboard
         visual.refresh().unwrap();
         assert!(visual.debug_bounds("project-picker").is_some());
     };
-    let alpha: &'static str = Box::leak(format!("project-picker-mono-{}", ids[0]).into_boxed_str());
-    let beta: &'static str = Box::leak(format!("project-picker-mono-{}", ids[1]).into_boxed_str());
+    let alpha: &'static str = Box::leak(format!("project-picker-minion-{}", ids[0]).into_boxed_str());
+    let beta: &'static str = Box::leak(format!("project-picker-minion-{}", ids[1]).into_boxed_str());
     open(visual);
     let alpha_row = visual.debug_bounds(alpha).unwrap();
     let beta_row = visual.debug_bounds(beta).unwrap();
@@ -189,13 +189,13 @@ fn original_collapsed_picker_selects_monos_and_projects_with_search_and_keyboard
     window
         .read_with(visual, |shell, cx| {
             assert!(shell.menu.is_none());
-            assert_eq!(shell.mono_manager().read(cx).active.as_ref(), Some(&ids[1]));
+            assert_eq!(shell.minion_manager().read(cx).active.as_ref(), Some(&ids[1]));
             assert_eq!(shell.workspace.project, "/work/monocode");
             assert!(
                 shell
                     .visible_tabs(cx)
                     .iter()
-                    .all(|tab| !matches!(tab, TitleTab::Mono { .. }))
+                    .all(|tab| !matches!(tab, TitleTab::Minion { .. }))
             );
         })
         .unwrap();
@@ -205,7 +205,7 @@ fn original_collapsed_picker_selects_monos_and_projects_with_search_and_keyboard
     window
         .read_with(visual, |shell, cx| {
             assert!(shell.menu.is_none());
-            assert!(!shell.mono_active(cx));
+            assert!(!shell.minion_active(cx));
             assert_eq!(shell.workspace.active, Some(session));
             assert!(!shell.workspace.project_rail_open);
         })
@@ -216,7 +216,7 @@ fn original_collapsed_picker_selects_monos_and_projects_with_search_and_keyboard
     visual.run_until_parked();
     window
         .read_with(visual, |shell, cx| {
-            assert_eq!(shell.mono_manager().read(cx).active.as_ref(), Some(&ids[0]));
+            assert_eq!(shell.minion_manager().read(cx).active.as_ref(), Some(&ids[0]));
         })
         .unwrap();
 }
@@ -284,7 +284,7 @@ fn assert_original_surface(surface: Surface, cx: &mut TestAppContext) {
     assert!(visual.debug_bounds("sidebar-content").is_some());
     assert!(visual.debug_bounds("title-tab-strip").is_some());
     assert!(visual.debug_bounds("classic-app-surface-header").is_none());
-    assert!(visual.debug_bounds("classic-mono-title").is_none());
+    assert!(visual.debug_bounds("classic-minion-title").is_none());
     window
         .read_with(visual, |shell, _| {
             assert!(shell.workspace.sidebar_visible);
@@ -319,60 +319,60 @@ fn original_app_surfaces_search_uses_search_field_header_and_restores_sessions(
 }
 
 #[gpui::test]
-fn original_app_surfaces_mono_uses_identity_header_and_restores_sessions(cx: &mut TestAppContext) {
-    assert_original_surface(Surface::Mono, cx);
+fn original_app_surfaces_minion_uses_identity_header_and_restores_sessions(cx: &mut TestAppContext) {
+    assert_original_surface(Surface::Minion, cx);
 }
 
 #[gpui::test]
-fn original_app_surfaces_mono_overview_and_rail_back_use_original_controls(
+fn original_app_surfaces_minion_overview_and_rail_back_use_original_controls(
     cx: &mut TestAppContext,
 ) {
     let (window, session) = setup(cx, true, false);
     let visual = &mut VisualTestContext::from_window(window.into(), cx);
     window
         .update(visual, |shell, window, cx| {
-            Surface::Mono.open(shell, window, cx)
+            Surface::Minion.open(shell, window, cx)
         })
         .unwrap();
     visual.run_until_parked();
     visual.refresh().unwrap();
-    let overview = visual.debug_bounds("classic-mono-overview").unwrap();
+    let overview = visual.debug_bounds("classic-minion-overview").unwrap();
     visual.simulate_click(overview.center(), Default::default());
     visual.run_until_parked();
     visual.refresh().unwrap();
 
     let header = visual
-        .debug_bounds("original-mono-overview-header")
+        .debug_bounds("original-minion-overview-header")
         .unwrap();
     assert_eq!(header.top(), px(0.));
     assert_eq!(header.size.height, px(40.));
-    assert!(visual.debug_bounds("mono-overview-tabs").is_some());
-    let first_tab = visual.debug_bounds("mono-overview-Overview").unwrap();
+    assert!(visual.debug_bounds("minion-overview-tabs").is_some());
+    let first_tab = visual.debug_bounds("minion-overview-Overview").unwrap();
     assert_eq!(first_tab.left() - header.left(), px(8.));
     assert!((first_tab.center().y - header.center().y).abs() <= px(0.5));
     assert!(visual.debug_bounds("sidebar-content").is_none());
     assert!(visual.debug_bounds("title-tab-strip").is_none());
     window
         .read_with(visual, |shell, cx| {
-            assert!(shell.mono_active(cx));
+            assert!(shell.minion_active(cx));
             assert!(shell.workspace.right_panel_open);
             assert!(shell.workspace.sidebar_visible);
         })
         .unwrap();
 
-    let hide = visual.debug_bounds("original-hide-mono-overview").unwrap();
+    let hide = visual.debug_bounds("original-hide-minion-overview").unwrap();
     visual.simulate_click(hide.center(), Default::default());
     visual.run_until_parked();
     visual.refresh().unwrap();
     assert!(
         visual
-            .debug_bounds("original-mono-overview-header")
+            .debug_bounds("original-minion-overview-header")
             .is_none()
     );
     window
         .read_with(visual, |shell, cx| {
             assert!(!shell.workspace.right_panel_open);
-            assert!(shell.mono_active(cx), "hiding overview keeps the Mono open");
+            assert!(shell.minion_active(cx), "hiding overview keeps the Minion open");
         })
         .unwrap();
 
@@ -382,20 +382,20 @@ fn original_app_surfaces_mono_overview_and_rail_back_use_original_controls(
     visual.refresh().unwrap();
     window
         .read_with(visual, |shell, cx| {
-            assert!(!shell.mono_active(cx));
+            assert!(!shell.minion_active(cx));
             assert_eq!(shell.workspace.active, Some(session));
             assert!(shell.workspace.sidebar_visible);
             assert!(shell.workspace.project_rail_open);
             assert_eq!(shell.workspace.sidebar_width, 260.);
         })
         .unwrap();
-    assert!(visual.debug_bounds("classic-mono-title").is_none());
+    assert!(visual.debug_bounds("classic-minion-title").is_none());
     assert!(visual.debug_bounds("title-tab-strip").is_some());
     assert!(visual.debug_bounds("sidebar-content").is_some());
 }
 
 #[gpui::test]
-fn project_clicks_leave_monos_in_original_layout(cx: &mut TestAppContext) {
+fn project_clicks_leave_minions_in_original_layout(cx: &mut TestAppContext) {
     for boxy in [false, true] {
         let (window, _) = setup(cx, true, boxy);
         let visual = &mut VisualTestContext::from_window(window.into(), cx);
@@ -404,29 +404,29 @@ fn project_clicks_leave_monos_in_original_layout(cx: &mut TestAppContext) {
             let target = window
                 .update(visual, |shell, window, cx| {
                     shell.select_project(path.into(), window, cx);
-                    Surface::Mono.open(shell, window, cx);
+                    Surface::Minion.open(shell, window, cx);
                     let ix = shell
                         .workspace
                         .projects
                         .iter()
                         .position(|p| p == path)
                         .unwrap();
-                    let mono = shell.mono_manager().read(cx).active.clone().unwrap();
+                    let minion = shell.minion_manager().read(cx).active.clone().unwrap();
                     let project_selector = format!("rail-project-button-{ix}");
                     (
                         path,
                         Box::leak(project_selector.into_boxed_str()) as &'static str,
-                        Box::leak(format!("mono-rail-{mono}").into_boxed_str()) as &'static str,
-                        mono,
+                        Box::leak(format!("minion-rail-{minion}").into_boxed_str()) as &'static str,
+                        minion,
                     )
                 })
                 .unwrap();
             visual.run_until_parked();
             targets.push(target);
         }
-        // Visit both projects repeatedly after each has remembered a Mono.
+        // Visit both projects repeatedly after each has remembered a Minion.
         // Exercise the real rail/space buttons, including a same-project click.
-        for (path, project_selector, mono_selector, mono) in targets.iter().cycle().take(4) {
+        for (path, project_selector, minion_selector, minion) in targets.iter().cycle().take(4) {
             for reopen in [true, false] {
                 visual.refresh().unwrap();
                 let project = visual.debug_bounds(project_selector).unwrap();
@@ -437,20 +437,20 @@ fn project_clicks_leave_monos_in_original_layout(cx: &mut TestAppContext) {
                     .read_with(visual, |shell, cx| {
                         assert_eq!(&shell.workspace.project, path);
                         assert!(
-                            !shell.mono_active(cx),
-                            "original-layout project clicks leave the Mono (boxy={boxy})"
+                            !shell.minion_active(cx),
+                            "original-layout project clicks leave the Minion (boxy={boxy})"
                         );
                         let session = shell.workspace.active.expect("the project shows a session");
                         assert_eq!(shell.session_metadata(session, cx).summary.cwd, *path);
                     })
                     .unwrap();
                 if reopen {
-                    let row = visual.debug_bounds(mono_selector).unwrap();
+                    let row = visual.debug_bounds(minion_selector).unwrap();
                     visual.simulate_click(row.center(), Default::default());
                     visual.run_until_parked();
                     window
                         .read_with(visual, |shell, cx| {
-                            assert_eq!(shell.mono_manager().read(cx).active.as_ref(), Some(mono));
+                            assert_eq!(shell.minion_manager().read(cx).active.as_ref(), Some(minion));
                         })
                         .unwrap();
                 }
@@ -460,7 +460,7 @@ fn project_clicks_leave_monos_in_original_layout(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn new_layout_projects_restore_the_last_session_or_mono_tab(cx: &mut TestAppContext) {
+fn new_layout_projects_restore_the_last_session_or_minion_tab(cx: &mut TestAppContext) {
     for boxy in [false, true] {
         let (window, _) = setup(cx, false, boxy);
         let visual = &mut VisualTestContext::from_window(window.into(), cx);
@@ -471,15 +471,15 @@ fn new_layout_projects_restore_the_last_session_or_mono_tab(cx: &mut TestAppCont
                 .update(visual, |shell, window, cx| {
                     shell.select_project(path.into(), window, cx);
                     let session = shell.workspace.active.unwrap();
-                    Surface::Mono.open(shell, window, cx);
-                    let mono = shell.mono_manager().read(cx).active.clone().unwrap();
+                    Surface::Minion.open(shell, window, cx);
+                    let minion = shell.minion_manager().read(cx).active.clone().unwrap();
                     let ix = shell
                         .workspace
                         .projects
                         .iter()
                         .position(|p| p == path)
                         .unwrap();
-                    (stable(format!("project-space-{ix}")), session, mono)
+                    (stable(format!("project-space-{ix}")), session, minion)
                 })
                 .unwrap();
             visual.run_until_parked();
@@ -492,63 +492,63 @@ fn new_layout_projects_restore_the_last_session_or_mono_tab(cx: &mut TestAppCont
             visual.run_until_parked();
             visual.refresh().unwrap();
         };
-        let assert_mono = |ix: usize, visual: &mut VisualTestContext| {
+        let assert_minion = |ix: usize, visual: &mut VisualTestContext| {
             window
                 .read_with(visual, |shell, cx| {
                     assert_eq!(
-                        shell.mono_manager().read(cx).active.as_ref(),
+                        shell.minion_manager().read(cx).active.as_ref(),
                         Some(&targets[ix].2)
                     );
                     assert!(
                         shell
                             .visible_tabs(cx)
-                            .contains(&shell.mono_tab(targets[ix].2.clone()))
+                            .contains(&shell.minion_tab(targets[ix].2.clone()))
                     );
                 })
                 .unwrap();
             assert!(
                 visual
-                    .debug_bounds(stable(format!("mono-title-tab-{}", targets[ix].2)))
+                    .debug_bounds(stable(format!("minion-title-tab-{}", targets[ix].2)))
                     .is_some()
             );
         };
         click(targets[0].0, visual);
-        assert_mono(0, visual);
+        assert_minion(0, visual);
         click(stable(format!("title-tab-{}", targets[0].1)), visual);
         click(targets[1].0, visual);
-        assert_mono(1, visual);
+        assert_minion(1, visual);
         click(targets[0].0, visual);
         window
             .read_with(visual, |shell, cx| {
-                assert!(!shell.mono_active(cx));
+                assert!(!shell.minion_active(cx));
                 assert_eq!(shell.workspace.active, Some(targets[0].1));
             })
             .unwrap();
-        click(stable(format!("mono-rail-{}", targets[0].2)), visual);
-        assert_mono(0, visual);
+        click(stable(format!("minion-rail-{}", targets[0].2)), visual);
+        assert_minion(0, visual);
         // Both same-project clicks and returning from another project restore
-        // a selected Mono in either new frame style.
+        // a selected Minion in either new frame style.
         click(targets[0].0, visual);
-        assert_mono(0, visual);
+        assert_minion(0, visual);
         click(targets[1].0, visual);
-        assert_mono(1, visual);
+        assert_minion(1, visual);
         click(targets[0].0, visual);
-        assert_mono(0, visual);
+        assert_minion(0, visual);
     }
 }
 
 #[gpui::test]
-fn original_monos_leave_project_tabs_unchanged_and_close_as_surfaces(cx: &mut TestAppContext) {
+fn original_minions_leave_project_tabs_unchanged_and_close_as_surfaces(cx: &mut TestAppContext) {
     cx.update(super::bind_keys);
     for boxy in [false, true] {
         let (window, session) = setup(cx, true, boxy);
         let visual = &mut VisualTestContext::from_window(window.into(), cx);
-        let (order, focus, mono, project_selector) = window
+        let (order, focus, minion, project_selector) = window
             .update(visual, |shell, window, cx| {
                 let order = shell.workspace.title_order.clone();
                 let focus = shell.workspace.scope_focus.clone();
-                Surface::Mono.open(shell, window, cx);
-                let mono = shell.mono_manager().read(cx).active.clone().unwrap();
+                Surface::Minion.open(shell, window, cx);
+                let minion = shell.minion_manager().read(cx).active.clone().unwrap();
                 let ix = shell
                     .workspace
                     .projects
@@ -558,7 +558,7 @@ fn original_monos_leave_project_tabs_unchanged_and_close_as_surfaces(cx: &mut Te
                 (
                     order,
                     focus,
-                    mono,
+                    minion,
                     Box::leak(format!("rail-project-button-{ix}").into_boxed_str()) as &'static str,
                 )
             })
@@ -572,24 +572,24 @@ fn original_monos_leave_project_tabs_unchanged_and_close_as_surfaces(cx: &mut Te
                     shell
                         .visible_tabs(cx)
                         .iter()
-                        .all(|tab| !matches!(tab, TitleTab::Mono { .. }))
+                        .all(|tab| !matches!(tab, TitleTab::Minion { .. }))
                 );
             })
             .unwrap();
-        let mono_selector = Box::leak(format!("mono-title-tab-{mono}").into_boxed_str());
+        let minion_selector = Box::leak(format!("minion-title-tab-{minion}").into_boxed_str());
         visual.refresh().unwrap();
         let project = visual.debug_bounds(project_selector).unwrap();
         visual.simulate_click(project.center(), Default::default());
         visual.run_until_parked();
         visual.refresh().unwrap();
         assert!(visual.debug_bounds("title-tab-strip").is_some());
-        assert!(visual.debug_bounds(mono_selector).is_none());
+        assert!(visual.debug_bounds(minion_selector).is_none());
 
         window
             .update(visual, |shell, window, cx| {
                 shell
-                    .mono_manager()
-                    .update(cx, |m, cx| m.open(&mono, window, cx));
+                    .minion_manager()
+                    .update(cx, |m, cx| m.open(&minion, window, cx));
             })
             .unwrap();
         visual.run_until_parked();
@@ -597,7 +597,7 @@ fn original_monos_leave_project_tabs_unchanged_and_close_as_surfaces(cx: &mut Te
         visual.run_until_parked();
         window
             .read_with(visual, |shell, cx| {
-                assert!(!shell.mono_active(cx));
+                assert!(!shell.minion_active(cx));
                 assert_eq!(shell.workspace.active, Some(session));
                 assert_eq!(shell.workspace.title_order, order);
             })
@@ -606,61 +606,61 @@ fn original_monos_leave_project_tabs_unchanged_and_close_as_surfaces(cx: &mut Te
         window
             .update(visual, |shell, window, cx| {
                 shell
-                    .mono_manager()
-                    .update(cx, |m, cx| m.open(&mono, window, cx));
+                    .minion_manager()
+                    .update(cx, |m, cx| m.open(&minion, window, cx));
                 shell.toggle_layout(cx);
             })
             .unwrap();
         visual.run_until_parked();
         visual.refresh().unwrap();
         assert!(
-            visual.debug_bounds(mono_selector).is_some(),
-            "switching to either new layout gives the open Mono a tab"
+            visual.debug_bounds(minion_selector).is_some(),
+            "switching to either new layout gives the open Minion a tab"
         );
     }
 }
 
 #[gpui::test]
-fn original_layout_hides_saved_mono_tabs_until_returning_to_new_layout(cx: &mut TestAppContext) {
+fn original_layout_hides_saved_minion_tabs_until_returning_to_new_layout(cx: &mut TestAppContext) {
     for boxy in [false, true] {
         let (window, session) = setup(cx, false, boxy);
         let visual = &mut VisualTestContext::from_window(window.into(), cx);
         window
             .update(visual, |shell, window, cx| {
-                Surface::Mono.open(shell, window, cx)
+                Surface::Minion.open(shell, window, cx)
             })
             .unwrap();
         visual.run_until_parked();
-        let (mono_tab, mono_selector) = window
+        let (minion_tab, minion_selector) = window
             .update(visual, |shell, _, cx| {
-                let id = shell.mono_manager().read(cx).active.clone().unwrap();
-                let tab = shell.mono_tab(id.clone());
+                let id = shell.minion_manager().read(cx).active.clone().unwrap();
+                let tab = shell.minion_tab(id.clone());
                 assert!(shell.visible_tabs(cx).contains(&tab));
                 shell.toggle_layout(cx);
                 (
                     tab,
-                    Box::leak(format!("mono-title-tab-{id}").into_boxed_str()) as &'static str,
+                    Box::leak(format!("minion-title-tab-{id}").into_boxed_str()) as &'static str,
                 )
             })
             .unwrap();
         visual.run_until_parked();
         window
             .update(visual, |shell, window, cx| {
-                assert!(shell.workspace.title_order.contains(&mono_tab));
-                assert!(!shell.visible_tabs(cx).contains(&mono_tab));
+                assert!(shell.workspace.title_order.contains(&minion_tab));
+                assert!(!shell.visible_tabs(cx).contains(&minion_tab));
                 shell.open(session, window, cx);
             })
             .unwrap();
         visual.run_until_parked();
         visual.refresh().unwrap();
         assert!(visual.debug_bounds("title-tab-strip").is_some());
-        assert!(visual.debug_bounds(mono_selector).is_none());
+        assert!(visual.debug_bounds(minion_selector).is_none());
         window
             .update(visual, |shell, _, cx| shell.toggle_layout(cx))
             .unwrap();
         visual.run_until_parked();
         visual.refresh().unwrap();
-        assert!(visual.debug_bounds(mono_selector).is_some());
+        assert!(visual.debug_bounds(minion_selector).is_some());
     }
 }
 
@@ -692,7 +692,7 @@ fn original_app_surfaces_keep_icon_rail_and_remember_closed_sessions(cx: &mut Te
         Surface::Notes,
         Surface::Automations,
         Surface::Search,
-        Surface::Mono,
+        Surface::Minion,
     ] {
         window
             .update(visual, |shell, window, cx| surface.open(shell, window, cx))
@@ -816,7 +816,7 @@ fn original_app_surfaces_leave_both_new_layout_styles_tabbed(cx: &mut TestAppCon
             Surface::Notes,
             Surface::Automations,
             Surface::Search,
-            Surface::Mono,
+            Surface::Minion,
         ] {
             window
                 .update(visual, |shell, window, cx| surface.open(shell, window, cx))
@@ -851,7 +851,7 @@ fn original_app_surfaces_leave_both_new_layout_styles_tabbed(cx: &mut TestAppCon
                     .unwrap();
             }
             assert!(visual.debug_bounds("classic-app-surface-header").is_none());
-            assert!(visual.debug_bounds("classic-mono-title").is_none());
+            assert!(visual.debug_bounds("classic-minion-title").is_none());
             assert!(visual.debug_bounds("project-rail-frame").is_none());
             window
                 .read_with(visual, |shell, _| {

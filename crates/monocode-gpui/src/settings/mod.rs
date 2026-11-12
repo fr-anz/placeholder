@@ -46,7 +46,7 @@ pub(crate) struct ArchivedSession {
 pub(crate) struct SettingsContext {
     /// The desktop's shared remote connection and SSH setup service.
     pub remote: Option<std::sync::Arc<monocode_core::remote::Connections>>,
-    pub monos: Vec<MonoSetting>,
+    pub minions: Vec<MinionSetting>,
     /// Worker roles orchestration assignments can name.
     pub roles: Vec<monocode_core::roles::Role>,
     /// What card coordinators and new board orchestrators start on.
@@ -77,7 +77,7 @@ impl PartialEq for SettingsContext {
             (None, Some(_)) | (Some(_), None) => return false,
             _ => {}
         }
-        self.monos == other.monos
+        self.minions == other.minions
             && self.roles == other.roles
             && self.orchestrator == other.orchestrator
             && self.classic == other.classic
@@ -96,7 +96,7 @@ impl PartialEq for SettingsContext {
     }
 }
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct MonoSetting {
+pub(crate) struct MinionSetting {
     pub id: String,
     pub name: String,
     pub mascot: String,
@@ -127,8 +127,8 @@ pub(crate) enum SettingsEvent {
         path: String,
         delete_sessions: bool,
     },
-    ResetMono(String),
-    MonoSidebar(String, bool, bool),
+    ResetMinion(String),
+    MinionSidebar(String, bool, bool),
     /// Replace the worker roles; an empty list restores the defaults.
     SaveRoles(Vec<monocode_core::roles::Role>),
     SaveOrchestrator(monocode_core::roles::Role),

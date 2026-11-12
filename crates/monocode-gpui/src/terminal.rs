@@ -1676,7 +1676,7 @@ mod tests {
         let spawned = spawn(&dir, size, 1);
         let sender = spawned.sender.expect("the shell started");
         assert!(spawned.shell_pid > 1);
-        let _ = sender.send(Msg::Input(Cow::Borrowed(b"printf 'mono%scode\\n' -\r")));
+        let _ = sender.send(Msg::Input(Cow::Borrowed(b"printf 'minion%scode\\n' -\r")));
         let screen = || {
             let term = spawned.term.lock();
             let grid = term.grid();
@@ -1692,7 +1692,7 @@ mod tests {
         let mut seen = false;
         for _ in 0..250 {
             std::thread::sleep(Duration::from_millis(20));
-            if screen().contains("mono-code") {
+            if screen().contains("minion-code") {
                 seen = true;
                 break;
             }

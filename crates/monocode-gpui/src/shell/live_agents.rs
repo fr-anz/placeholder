@@ -268,7 +268,7 @@ impl Shell {
                 .map(|at| live_elapsed(now.saturating_sub(at)))
         };
         let selected = self.selected_sessions.contains(&id)
-            || (self.workspace.active == Some(id) && !self.mono_active(cx));
+            || (self.workspace.active == Some(id) && !self.minion_active(cx));
         let status: AnyElement = if agent.needs_approval {
             icon("alert-circle", 12.)
                 .text_color(rgb(AMBER))

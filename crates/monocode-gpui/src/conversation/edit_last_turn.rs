@@ -59,7 +59,7 @@ impl Conversation {
             && !self.busy
             && !self.stopping
             && !self.editing_last_turn.pending()
-            && self.settings.mono.is_none()
+            && self.settings.minion.is_none()
             && !self.settings.worktree_removed
             && provider::supports_rewind(Kind::from_id(&self.summary.provider))
             && !self.account_switching

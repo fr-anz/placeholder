@@ -1228,7 +1228,7 @@ fn mascot_lineup() -> AnyElement {
                 .bottom(px(18. + step * 2.))
                 .size(px(size))
                 .opacity(1. - step * 0.17)
-                .child(crate::monos::avatar::avatar(
+                .child(crate::minions::avatar::avatar(
                     name, color, "idle", size, true,
                 ))
         }))

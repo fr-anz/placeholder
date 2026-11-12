@@ -97,7 +97,9 @@ pub(crate) struct Preferences {
     /// The model for session titles, branch names, commit messages and pull
     /// requests; `None` lets each use its own harness's quick model.
     pub background_model: Option<ModelChoice>,
-    // Monos
+    // Minions. All three flags keep their native names: core's
+    // desktop-preferences reconcile table maps these exact fields to the
+    // upstream keys `monosEnabled`, `railMonosPinned` and `monoMenuBarIcon`.
     pub monos: bool,
     pub rail_monos_pinned: bool,
     pub mono_menu_bar_icon: bool,

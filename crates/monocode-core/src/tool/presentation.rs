@@ -366,7 +366,7 @@ pub fn visual_tool(name: &str) -> Option<VisualStep> {
     }
 }
 
-/// A Mono's app tool however a provider names it: `mcp__monocode_app__app`,
+/// A Minion's app tool however a provider names it: `mcp__monocode_app__app`,
 /// `monocode_app.app` or `monocode_app:app`.
 pub fn app_tool(name: &str) -> bool {
     name.rsplit_once("__")
@@ -375,7 +375,7 @@ pub fn app_tool(name: &str) -> bool {
         .is_some_and(|(server, tool)| server.contains("monocode_app") && tool == "app")
 }
 
-/// The action of a Mono's app CLI call in a shell command:
+/// The action of a Minion's app CLI call in a shell command:
 /// `'/Applications/Monocode.app/…/monocode-gpui' app memory.add --json …`.
 pub fn app_cli_action(command: &str) -> Option<&str> {
     let words: Vec<&str> = command.split_whitespace().collect();
@@ -842,7 +842,7 @@ mod tests {
     }
 
     #[test]
-    fn mono_app_calls_read_as_what_they_do() {
+    fn minion_app_calls_read_as_what_they_do() {
         assert!(app_tool("mcp__monocode_app__app"));
         assert!(app_tool("monocode_app.app"));
         assert!(!app_tool("mcp__other__app"));

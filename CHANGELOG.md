@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The agent feature **Mono**/**Monos** is now **Minion**/**Minions**. Minions get person-style names from a built-in list that starts with Franz, then Vincent; existing Minions that had no name of their own get one from the list on upgrade, so the old "MonoCat"-style labels are gone. A name you chose yourself is kept.
+- Existing Monos keep their history: the saved roster moves to its new setting key on first load, other saved state is still read from its old keys, and sessions, habits and transcripts are unchanged. A rebound or disabled "Toggle Minion" shortcut keeps working.
+- The phone app's `mono.*` requests still work, and `minion.*` is accepted too.
+
 ### Fixed
 
-- A Mono's completion report for a delegated session now carries that session's final answer from its latest turn, instead of every progress message and earlier report with the answer cut off. A long answer keeps its ending and says how to read the rest.
+- A Minion's completion report for a delegated session now carries that session's final answer from its latest turn, instead of every progress message and earlier report with the answer cut off. A long answer keeps its ending and says how to read the rest.
 - `sessions.read` can page through a long message with `charOffset`, following the `nextCharOffset` it returns.
 
 ## [0.16.0] - 2026-10-19

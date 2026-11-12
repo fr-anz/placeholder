@@ -29,6 +29,8 @@ impl DesktopPreferences {
             ("mask_emails", "maskEmails", true),
             ("claude_hooks", "claudeHooks", true),
             ("claude_entrypoint", "claudeEntrypoint", false),
+            // The Minion preferences keep the upstream desktop's key and
+            // native field names: both apps reconcile these exact strings.
             ("monos", "monosEnabled", true),
             ("rail_monos_pinned", "railMonosPinned", false),
             ("mono_menu_bar_icon", "monoMenuBarIcon", true),

@@ -7,7 +7,7 @@ impl Shell {
             && (self.settings.is_some()
                 || self.app_view_open()
                 || self.search_page()
-                || self.mono_active(cx))
+                || self.minion_active(cx))
     }
 
     pub(super) fn session_sidebar_available(&self, cx: &App) -> bool {
@@ -61,16 +61,16 @@ impl Shell {
             .into_any_element()
     }
 
-    pub(super) fn classic_mono_header(&self, cx: &mut Context<Self>) -> AnyElement {
-        let monos = self.monos.as_ref().expect("a Mono is open").clone();
+    pub(super) fn classic_minion_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let minions = self.minions.as_ref().expect("a Minion is open").clone();
         let open = self.workspace.right_panel_open;
         let compact = !self.workspace.project_rail_open;
-        let title = monos
+        let title = minions
             .read(cx)
             .original_title(if compact { 6. } else { 12. }, cx);
         div()
-            .id("classic-mono-title")
-            .debug_selector(|| "classic-mono-title".into())
+            .id("classic-minion-title")
+            .debug_selector(|| "classic-minion-title".into())
             .h(px(TITLE_BAR_HEIGHT))
             .min_w_0()
             .flex_shrink_0()
@@ -90,8 +90,8 @@ impl Shell {
                     .px_3()
                     .child(
                         div()
-                            .id("classic-mono-overview")
-                            .debug_selector(|| "classic-mono-overview".into())
+                            .id("classic-minion-overview")
+                            .debug_selector(|| "classic-minion-overview".into())
                             .role(Role::Button)
                             .aria_label(if open {
                                 "Hide overview"
@@ -116,11 +116,11 @@ impl Shell {
                             })),
                     )
                     .child(
-                        icon_button("classic-mono-settings", "Mono settings", "settings")
+                        icon_button("classic-minion-settings", "Minion settings", "settings")
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(move |_, _, window, cx| {
-                                monos
-                                    .update(cx, |monos, cx| monos.open_current_settings(window, cx))
+                                minions
+                                    .update(cx, |minions, cx| minions.open_current_settings(window, cx))
                             })),
                     ),
             )
@@ -130,9 +130,9 @@ impl Shell {
     pub(super) fn classic_rail_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.is_some() {
             self.close_settings(window, cx);
-        } else if self.mono_active(cx) {
-            if let Some(monos) = &self.monos {
-                monos.update(cx, |monos, cx| monos.close(cx));
+        } else if self.minion_active(cx) {
+            if let Some(minions) = &self.minions {
+                minions.update(cx, |minions, cx| minions.close(cx));
             }
             self.ensure_project_session(window, cx);
             self.update_chat_visibility(cx);

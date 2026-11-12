@@ -82,8 +82,8 @@ impl Shell {
             return;
         };
         self.workspace.project = session.read(cx).summary.cwd.clone();
-        if let Some(monos) = &self.monos {
-            monos.update(cx, |m, cx| m.close(cx));
+        if let Some(minions) = &self.minions {
+            minions.update(cx, |m, cx| m.close(cx));
         }
         self.navigation_revision += 1;
         self.leave_app_views(cx);
@@ -112,38 +112,38 @@ mod tests {
     use gpui::{EntityInputHandler, TestAppContext, VisualTestContext, point};
 
     #[gpui::test]
-    fn mono_file_link_opens_visible_editor_and_preserves_its_chat(cx: &mut TestAppContext) {
+    fn minion_file_link_opens_visible_editor_and_preserves_its_chat(cx: &mut TestAppContext) {
         cx.update(|cx| cx.set_reduce_motion(true));
         let (window, _, session) = window(cx);
         let folder =
-            std::env::temp_dir().join(format!("monocode-mono-file-link-{}", std::process::id()));
+            std::env::temp_dir().join(format!("monocode-minion-file-link-{}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
         let path = folder.join("README.md").to_string_lossy().into_owned();
         std::fs::write(&path, "# Heading\nsecond line\nthird line\n").unwrap();
         window
             .update(cx, |shell, w, cx| {
                 shell
-                    .mono_manager()
+                    .minion_manager()
                     .update(cx, |m, cx| m.create(Vec::new(), w, cx));
             })
             .unwrap();
         cx.run_until_parked();
-        let (mono, chat) = window
+        let (minion, chat) = window
             .update(cx, |shell, _, cx| {
-                assert!(shell.mono_active(cx));
-                let mono = shell.active_title_tab(cx).unwrap();
-                let chat = shell.mono_manager().read(cx).chat().unwrap();
+                assert!(shell.minion_active(cx));
+                let minion = shell.active_title_tab(cx).unwrap();
+                let chat = shell.minion_manager().read(cx).chat().unwrap();
                 chat.read(cx).input.clone().update(cx, |input, cx| {
-                    input.set_text("Keep my Mono draft".into(), cx)
+                    input.set_text("Keep my Minion draft".into(), cx)
                 });
-                (mono, chat)
+                (minion, chat)
             })
             .unwrap();
         let visual = &mut VisualTestContext::from_window(window.into(), cx);
         visual.run_until_parked();
         assert!(
-            visual.debug_bounds("mono-composer").is_some(),
-            "the action starts in the visible Mono"
+            visual.debug_bounds("minion-composer").is_some(),
+            "the action starts in the visible Minion"
         );
         window
             .update(visual, |_, w, cx| {
@@ -158,14 +158,14 @@ mod tests {
             visual.debug_bounds("review-tab-strip").is_some(),
             "the file pane is rendered"
         );
-        assert!(visual.debug_bounds("mono-composer").is_none());
+        assert!(visual.debug_bounds("minion-composer").is_none());
         let (pane, editor) = window
             .update(visual, |shell, w, cx| {
-                assert!(!shell.mono_active(cx));
+                assert!(!shell.minion_active(cx));
                 let pane = shell.workspace.active.unwrap();
                 assert_ne!(pane, session, "the file has its own title tab");
                 assert_eq!(shell.workspace.session_for_pane(pane), session);
-                assert!(shell.visible_tabs(cx).contains(&mono));
+                assert!(shell.visible_tabs(cx).contains(&minion));
                 assert!(shell.visible_tabs(cx).contains(&TitleTab::Session(session)));
                 let review = shell.active_review(cx).unwrap();
                 assert!(review.read(cx).state.chat_hidden);
@@ -186,23 +186,23 @@ mod tests {
                 editor.read(cx).input.clone().update(cx, |input, cx| {
                     input.replace_text_in_range(None, "unsaved", w, cx)
                 });
-                shell.open_title_tab(&mono, w, cx);
+                shell.open_title_tab(&minion, w, cx);
                 (pane, editor)
             })
             .unwrap();
         visual.run_until_parked();
-        assert!(visual.debug_bounds("mono-composer").is_some());
+        assert!(visual.debug_bounds("minion-composer").is_some());
         window
             .update(visual, |shell, w, cx| {
-                assert_eq!(shell.active_title_tab(cx), Some(mono.clone()));
-                let restored = shell.mono_manager().read(cx).chat().unwrap();
+                assert_eq!(shell.active_title_tab(cx), Some(minion.clone()));
+                let restored = shell.minion_manager().read(cx).chat().unwrap();
                 assert_eq!(
                     restored, chat,
-                    "the original live Mono conversation is retained"
+                    "the original live Minion conversation is retained"
                 );
                 assert_eq!(
                     restored.read(cx).input.read(cx).content.as_ref(),
-                    "Keep my Mono draft"
+                    "Keep my Minion draft"
                 );
                 assert!(restored.read(cx).input.focus_handle(cx).is_focused(w));
                 w.dispatch_action(Box::new(crate::file_editor::OpenPath(path.clone())), cx);
@@ -224,7 +224,7 @@ mod tests {
                 );
                 assert!(reopened.read(cx).dirty);
                 assert!(reopened.read(cx).focus_handle(cx).contains_focused(w, cx));
-                assert!(shell.visible_tabs(cx).contains(&mono));
+                assert!(shell.visible_tabs(cx).contains(&minion));
             })
             .unwrap();
         std::fs::remove_dir_all(folder).unwrap();

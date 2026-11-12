@@ -39,8 +39,8 @@ fn separator(at: u64) -> Option<gpui::AnyElement> {
     let day = day_label(local_day(at)?, Local::now().date_naive());
     Some(
         div()
-            .id(SharedString::from(format!("mono-day-separator-{at}")))
-            .debug_selector(|| "mono-day-separator".into())
+            .id(SharedString::from(format!("minion-day-separator-{at}")))
+            .debug_selector(|| "minion-day-separator".into())
             .role(Role::Label)
             .aria_label(day.clone())
             .w_full()
@@ -96,7 +96,7 @@ pub(super) fn opens_later_day(source: &[Row], start: usize) -> bool {
             .is_some_and(|previous| previous != day)
 }
 
-pub(crate) fn mono_opens_stretch(source: &[Row], start: usize) -> bool {
+pub(crate) fn minion_opens_stretch(source: &[Row], start: usize) -> bool {
     opens_stretch(source[start].sent_at, previous_send(source, start))
 }
 
@@ -105,14 +105,14 @@ impl TranscriptView {
         previous_send(&self.source, start)
     }
 
-    pub(super) fn mono_opens_stretch(&self, start: usize) -> bool {
-        mono_opens_stretch(&self.source, start)
+    pub(super) fn minion_opens_stretch(&self, start: usize) -> bool {
+        minion_opens_stretch(&self.source, start)
     }
 
     /// A user opens its stretch above its bubble. A standalone/internal run
-    /// opens it above the Mono's header, since its prompt is hidden.
-    fn mono_stamp(&self, start: usize) -> Option<u64> {
-        if !self.mono || self.document {
+    /// opens it above the Minion's header, since its prompt is hidden.
+    fn minion_stamp(&self, start: usize) -> Option<u64> {
+        if !self.minion || self.document {
             return None;
         }
         let row = self.source.get(start)?;
@@ -136,13 +136,13 @@ impl TranscriptView {
             }
             prompt
         };
-        self.mono_opens_stretch(stamp)
+        self.minion_opens_stretch(stamp)
             .then_some(self.source[stamp].sent_at)
             .flatten()
     }
 
-    pub(super) fn mono_separator(&self, start: usize) -> Option<gpui::AnyElement> {
-        self.mono_stamp(start).and_then(separator)
+    pub(super) fn minion_separator(&self, start: usize) -> Option<gpui::AnyElement> {
+        self.minion_stamp(start).and_then(separator)
     }
 
     pub(super) fn pending_separator(&self, index: usize) -> Option<gpui::AnyElement> {
@@ -177,7 +177,7 @@ mod tests {
     ) {
         let view = cx.new(|_| {
             let mut view = TranscriptView::new();
-            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+            view.minion_mode("cat", 0xe86b5f, "MinionCat");
             view
         });
         view.update(cx, |view, cx| {
@@ -199,17 +199,17 @@ mod tests {
                 ],
                 cx,
             );
-            assert_eq!(view.mono_stamp(0), Some(at(16, 7, 39)));
+            assert_eq!(view.minion_stamp(0), Some(at(16, 7, 39)));
             assert_eq!(
-                view.mono_stamp(1),
+                view.minion_stamp(1),
                 None,
                 "the reply shares its prompt's day"
             );
-            assert_eq!(view.mono_stamp(2), Some(at(17, 9, 0)));
-            assert_eq!(view.mono_stamp(3), None, "same-day runs stack");
-            assert_eq!(view.mono_stamp(4), Some(at(19, 9, 0)));
-            assert_eq!(view.mono_stamp(5), Some(at(21, 9, 1)));
-            // The Mono signs each later day again, under that day's badge.
+            assert_eq!(view.minion_stamp(2), Some(at(17, 9, 0)));
+            assert_eq!(view.minion_stamp(3), None, "same-day runs stack");
+            assert_eq!(view.minion_stamp(4), Some(at(19, 9, 0)));
+            assert_eq!(view.minion_stamp(5), Some(at(21, 9, 1)));
+            // The Minion signs each later day again, under that day's badge.
             let headers: Vec<_> = view
                 .rows
                 .iter()
@@ -244,13 +244,13 @@ mod tests {
     }
 
     #[gpui::test]
-    fn mono_dates_survive_streaming_and_split_reactions_and_completion_runs(
+    fn minion_dates_survive_streaming_and_split_reactions_and_completion_runs(
         cx: &mut gpui::TestAppContext,
     ) {
         cx.update(|cx| cx.set_reduce_motion(true));
         let view = cx.new(|_| {
             let mut view = TranscriptView::new();
-            view.mono_mode("cat", 0xe86b5f, "MonoCat");
+            view.minion_mode("cat", 0xe86b5f, "MinionCat");
             view
         });
         view.update(cx, |view, cx| {
@@ -274,16 +274,16 @@ mod tests {
                 ],
                 cx,
             );
-            assert_eq!(view.mono_stamp(0), Some(at(4, 23, 55)));
-            assert_eq!(view.mono_stamp(2), Some(at(5, 0, 5)));
-            assert_eq!(view.mono_stamp(3), None, "no duplicate before the reply");
+            assert_eq!(view.minion_stamp(0), Some(at(4, 23, 55)));
+            assert_eq!(view.minion_stamp(2), Some(at(5, 0, 5)));
+            assert_eq!(view.minion_stamp(3), None, "no duplicate before the reply");
             assert_eq!(
-                view.mono_stamp(5),
+                view.minion_stamp(5),
                 None,
                 "nearby completion continues the same stretch"
             );
             assert_eq!(
-                view.mono_stamp(7),
+                view.minion_stamp(7),
                 None,
                 "a later run on the same day has no badge of its own"
             );
@@ -291,19 +291,19 @@ mod tests {
                 !view.stacks_on_next(0),
                 "a new day breaks reaction stacking"
             );
-            assert_eq!(view.mono_group_start(5), 3);
+            assert_eq!(view.minion_group_start(5), 3);
             assert_eq!(
-                view.mono_group_start(7),
+                view.minion_group_start(7),
                 3,
                 "a same-day run continues the turn, however long the break"
             );
             view.streaming(true, cx);
             view.patch(8, vec![row("user", "Still today", Some(at(5, 4, 10)))], cx);
-            assert_eq!(view.mono_stamp(8), None);
+            assert_eq!(view.minion_stamp(8), None);
             view.patch(9, vec![row("assistant", "Reply", Some(at(5, 4, 11)))], cx);
             view.streaming(false, cx);
-            assert_eq!(view.mono_stamp(8), None);
-            assert_eq!(view.mono_stamp(0), Some(at(4, 23, 55)));
+            assert_eq!(view.minion_stamp(8), None);
+            assert_eq!(view.minion_stamp(0), Some(at(4, 23, 55)));
             view.set_pending(
                 vec![PendingMessage {
                     id: "tomorrow".into(),
@@ -319,13 +319,13 @@ mod tests {
             view.patch(10, vec![row("user", "Tomorrow", Some(at(6, 0, 5)))], cx);
             view.set_pending(Vec::new(), cx);
             assert_eq!(
-                view.mono_stamp(10),
+                view.minion_stamp(10),
                 Some(at(6, 0, 5)),
                 "delivery keeps the queued message's date"
             );
-            view.mono = false;
+            view.minion = false;
             assert_eq!(
-                view.mono_stamp(0),
+                view.minion_stamp(0),
                 None,
                 "normal sessions keep their layout"
             );
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn mono_renders_date_pills_and_removes_the_session_outline(cx: &mut gpui::TestAppContext) {
+    fn minion_renders_date_pills_and_removes_the_session_outline(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| cx.set_reduce_motion(true));
         let window = cx.update(|cx| {
             cx.open_window(
@@ -387,7 +387,7 @@ mod tests {
         let visual = &mut gpui::VisualTestContext::from_window(window.into(), cx);
         visual.run_until_parked();
         assert!(visual.debug_bounds("prompt-outline").is_some());
-        assert!(visual.debug_bounds("mono-day-separator").is_none());
+        assert!(visual.debug_bounds("minion-day-separator").is_none());
         for (width, outlined) in [(927., false), (928., true), (1100., true)] {
             visual.simulate_resize(size(px(width), px(700.)));
             visual.run_until_parked();
@@ -399,12 +399,12 @@ mod tests {
         }
         window
             .update(visual, |view, _, cx| {
-                view.mono_mode("cat", 0xe86b5f, "MonoCat");
+                view.minion_mode("cat", 0xe86b5f, "MinionCat");
                 view.rebuild(0, cx);
             })
             .unwrap();
         visual.run_until_parked();
         assert!(visual.debug_bounds("prompt-outline").is_none());
-        assert!(visual.debug_bounds("mono-day-separator").is_some());
+        assert!(visual.debug_bounds("minion-day-separator").is_some());
     }
 }

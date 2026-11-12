@@ -267,7 +267,7 @@ fn operator_children_are_visible_durable_and_do_not_navigate_by_default(cx: &mut
             assert_eq!(shell.workspace.active, Some(caller));
             assert!(shell.sidebar_session_ids(cx).contains(&child));
             assert!(!shell.sidebar_hidden_sessions.contains(&child));
-            assert!(!shell.monos.as_ref().unwrap().read(cx).hidden_session(child));
+            assert!(!shell.minions.as_ref().unwrap().read(cx).hidden_session(child));
             let view = shell.sessions[&child].read(cx);
             assert_eq!(
                 view.settings.access,
@@ -498,7 +498,7 @@ fn operator_notes_and_conversation_paging_use_the_project_api(cx: &mut TestAppCo
 fn operator_creates_selects_and_validates_real_worktrees(cx: &mut TestAppContext) {
     let root = std::env::temp_dir().join(format!(
         "operator-worktrees-{}",
-        monocode_core::mono::new_id()
+        monocode_core::minion::new_id()
     ));
     let project = root.join("project");
     std::fs::create_dir_all(&project).unwrap();

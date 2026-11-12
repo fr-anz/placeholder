@@ -20,9 +20,9 @@ impl Shell {
         archived.sort_by_key(|s| std::cmp::Reverse(s.updated_at));
         let mut catalogs = HashMap::new();
         let active = self
-            .monos
+            .minions
             .as_ref()
-            .filter(|_| self.mono_active(cx))
+            .filter(|_| self.minion_active(cx))
             .and_then(|m| m.read(cx).chat())
             .or_else(|| {
                 self.workspace.active.and_then(|id| {
@@ -85,15 +85,15 @@ impl Shell {
                     )
                 })
                 .collect(),
-            monos: self
-                .monos
+            minions: self
+                .minions
                 .as_ref()
                 .map(|m| {
                     m.read(cx)
                         .roster
-                        .monos
+                        .minions
                         .iter()
-                        .map(|m| crate::settings::MonoSetting {
+                        .map(|m| crate::settings::MinionSetting {
                             id: m.id.clone(),
                             name: m.label(),
                             mascot: m.mascot.clone(),
@@ -226,8 +226,8 @@ impl Shell {
                     cx,
                 ),
                 SettingsEvent::ChooseBackground => this.choose_chat_background(cx),
-                SettingsEvent::ResetMono(id) => {
-                    if let Some(m) = this.monos.clone() {
+                SettingsEvent::ResetMinion(id) => {
+                    if let Some(m) = this.minions.clone() {
                         let reset = m.update(cx, |m, cx| m.reset_defaults(id, cx));
                         cx.spawn(async move |this, cx| {
                             let result = reset.await;
@@ -241,8 +241,8 @@ impl Shell {
                         .detach();
                     }
                 }
-                SettingsEvent::MonoSidebar(id, show, folders) => {
-                    if let Some(m) = this.monos.clone() {
+                SettingsEvent::MinionSidebar(id, show, folders) => {
+                    if let Some(m) = this.minions.clone() {
                         m.update(cx, |m, cx| m.sidebar_preferences(id, *show, *folders, cx));
                     }
                     this.sync_settings(cx);
@@ -392,9 +392,9 @@ impl Shell {
         monocode_core::accounts::set_claude_entrypoint(
             self.workspace.preferences.claude_entrypoint,
         );
-        if let Some(monos) = &self.monos {
+        if let Some(minions) = &self.minions {
             let prefs = self.workspace.preferences.clone();
-            monos.update(cx, |m, cx| m.set_preferences(prefs, cx));
+            minions.update(cx, |m, cx| m.set_preferences(prefs, cx));
         }
         crate::settings::apply_keybindings(&self.workspace.preferences, cx);
         // After the keymap, so the menu shows rebound shortcuts.
@@ -748,7 +748,7 @@ mod tests {
             "settings-nav-providers",
             "settings-nav-mcp",
             "settings-nav-skills",
-            "settings-nav-monos",
+            "settings-nav-minions",
             "settings-nav-inbox",
             "settings-nav-archive",
             "settings-nav-worktrees",

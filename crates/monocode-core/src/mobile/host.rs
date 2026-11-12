@@ -18,6 +18,8 @@ use std::{
 use tokio::sync::oneshot;
 
 /// Methods the app answers. Pairing, leaving and the catalog are the host's.
+/// The `minion.*` spellings are current; the `mono.*` spellings are the wire
+/// names the shipped phone app still sends, kept as aliases.
 const APP_METHODS: &[&str] = &[
     "conversation.read",
     "conversation.older",
@@ -42,13 +44,21 @@ const APP_METHODS: &[&str] = &[
     "session.rename",
     "session.delete",
     "session.archive",
+    "minion.document",
     "mono.document",
+    "minion.profile",
     "mono.profile",
+    "minion.update",
     "mono.update",
+    "minion.reset",
     "mono.reset",
+    "minion.delete",
     "mono.delete",
+    "minion.create",
     "mono.create",
+    "minion.file",
     "mono.file",
+    "minion.saveFile",
     "mono.saveFile",
 ];
 /// Under the phone's own wait, so it hears why rather than timing out.
@@ -1039,6 +1049,36 @@ mod tests {
                 "stranger",
                 json!({"version":VERSION,"id":"c3","method":"workspace.list","params":{}})
             )
+            .await
+            .is_err());
+        std::fs::remove_dir_all(host.path.parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn minion_methods_and_their_legacy_mono_spellings_both_reach_the_app() {
+        let (host, events, peer) = paired();
+        let answering = tokio::spawn(async move {
+            for method in ["minion.reset", "mono.reset"] {
+                let Ok(Event::Request(request)) = events.recv().await else {
+                    panic!("expected a request");
+                };
+                assert_eq!(request.method, method);
+                request.reply(Ok(json!({"minions":[]})));
+            }
+        });
+        // The renamed spelling and the shipped phone app's legacy spelling
+        // are both allowlisted and forwarded unchanged.
+        for method in ["minion.reset", "mono.reset"] {
+            let result = host
+                .handle(&peer, json!({"version":VERSION,"id":method,"method":method,"params":{}}))
+                .await
+                .unwrap();
+            assert_eq!(result["minions"], json!([]));
+        }
+        answering.await.unwrap();
+        // An unlisted spelling is still rejected before reaching the app.
+        assert!(host
+            .handle(&peer, json!({"version":VERSION,"id":"x","method":"minion.frobnicate","params":{}}))
             .await
             .is_err());
         std::fs::remove_dir_all(host.path.parent().unwrap()).unwrap();

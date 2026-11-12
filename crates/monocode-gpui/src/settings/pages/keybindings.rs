@@ -11,6 +11,14 @@ pub(crate) struct Binding {
     pub when: &'static str,
     pub fixed: bool,
 }
+/// The label a command shows; ids that predate the Minion rename stay
+/// unchanged so saved overrides still match.
+pub(crate) fn display_name(command: &str) -> &str {
+    match command {
+        "App: Toggle Mono" => "App: Toggle Minion",
+        other => other,
+    }
+}
 pub(crate) const BINDINGS: &[Binding] = &[
     Binding {
         command: "App: Settings",
@@ -79,9 +87,11 @@ pub(crate) const BINDINGS: &[Binding] = &[
         fixed: false,
     },
     Binding {
+        // Saved shortcut overrides (and the desktop app) key on this id, so
+        // it keeps the old name; `display_name` shows "App: Toggle Minion".
         command: "App: Toggle Mono",
         keys: "⌘I",
-        when: "Project with a mono",
+        when: "Project with a minion",
         fixed: false,
     },
     Binding {
@@ -381,7 +391,7 @@ impl SettingsView {
             .iter()
             .filter(|r| cfg!(target_os = "macos") || r.command != "App: Quick Composer")
             .filter(|r| {
-                format!("{} {} {}", r.command, self.binding_label(r), r.when)
+                format!("{} {} {}", display_name(r.command), self.binding_label(r), r.when)
                     .to_lowercase()
                     .contains(&query)
             })
@@ -474,7 +484,7 @@ impl SettingsView {
                             .flex_1()
                             .truncate()
                             .text_color(content(if disabled { 0.45 } else { 1. }))
-                            .child(command),
+                            .child(display_name(command).to_string()),
                     )
                     .child(
                         div()
@@ -488,7 +498,7 @@ impl SettingsView {
                                     .id(gpui::SharedString::from(format!("shortcut-{command}")))
                                     .debug_selector(move || format!("shortcut-{command}"))
                                     .role(if row.fixed { Role::Label } else { Role::Button })
-                                    .aria_label(format!("Change {command} shortcut"))
+                                    .aria_label(format!("Change {} shortcut", display_name(command)))
                                     .h(px(24.))
                                     .w(px(112.))
                                     .flex()
@@ -631,7 +641,7 @@ impl SettingsView {
                         .and_then(|s| s.as_ref())
                         == Some(&shortcut))
         }) {
-            self.recording_error = Some(format!("Already used by {}", other.command));
+            self.recording_error = Some(format!("Already used by {}", display_name(other.command)));
             cx.notify();
             return;
         }

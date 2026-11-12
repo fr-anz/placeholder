@@ -193,7 +193,7 @@ impl Shell {
         self.workspace.preferences.terminal_placement() == "panel"
             && !self.workspace.classic_layout
             && !self.workspace.project.starts_with("remote://")
-            && !self.mono_active(cx)
+            && !self.minion_active(cx)
             && self.git.read(cx).available()
     }
     /// Terminals open as their own title bar tabs; the dock stays for

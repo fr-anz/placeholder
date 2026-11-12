@@ -12,7 +12,7 @@ const ICON_RAIL_WIDTH: f32 = 48.;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ProjectRailRow {
-    Monos,
+    Minions,
     Heading(&'static str),
     Group(String),
     Project { path: String, grouped: bool },
@@ -81,9 +81,9 @@ impl ProjectRailList {
             );
             self.rows = rows;
         }
-        // The global Mono roster is one naturally sized item, not a project
+        // The global Minion roster is one naturally sized item, not a project
         // card. Its row count can change without the project list changing.
-        if self.rows.first() == Some(&ProjectRailRow::Monos) {
+        if self.rows.first() == Some(&ProjectRailRow::Minions) {
             self.state.remeasure_items(0..1);
         }
     }
@@ -333,7 +333,7 @@ impl Shell {
     fn prepare_project_rail(&mut self, compact: bool) {
         let mut rows = Vec::new();
         if self.workspace.preferences.monos {
-            rows.push(ProjectRailRow::Monos);
+            rows.push(ProjectRailRow::Minions);
         }
         let projects = &self.workspace.projects;
         let pinned: Vec<_> = projects
@@ -417,8 +417,8 @@ impl Shell {
             Some(ProjectRailRow::Project { .. })
         );
         match row {
-            ProjectRailRow::Monos => self
-                .monos
+            ProjectRailRow::Minions => self
+                .minions
                 .clone()
                 .map(|m| m.update(cx, |m, cx| m.project_navigation_rail(compact, cx)))
                 .unwrap_or_else(|| div().into_any()),
@@ -677,7 +677,7 @@ impl Shell {
     }
     fn project_rail_compact_actions(&mut self, cx: &mut Context<Self>) -> AnyElement {
         use classic_sidebar::ClassicSidebarTab;
-        let workspace_active = !self.app_view_open() && !self.mono_active(cx);
+        let workspace_active = !self.app_view_open() && !self.minion_active(cx);
         let inbox_unread = self
             .inbox
             .as_ref()
@@ -695,32 +695,32 @@ impl Shell {
                 tabs.push(tab);
             }
         }
-        let mono_rail =
-            if self.workspace.project_rail_monos_pinned && self.workspace.preferences.monos {
-                self.monos
+        let minion_rail =
+            if self.workspace.project_rail_minions_pinned && self.workspace.preferences.monos {
+                self.minions
                     .clone()
-                    .filter(|m| !m.read(cx).roster.monos.is_empty())
+                    .filter(|m| !m.read(cx).roster.minions.is_empty())
                     .map(|m| m.update(cx, |m, cx| m.project_navigation_rail(true, cx)))
             } else {
                 None
             };
-        let active_mono = self
-            .monos
+        let active_minion = self
+            .minions
             .as_ref()
             .filter(|_| self.workspace.preferences.monos)
             .and_then(|manager| {
                 let manager = manager.read(cx);
-                manager.current().map(|mono| {
+                manager.current().map(|minion| {
                     let status = manager
                         .chat()
-                        .map_or("idle", |chat| chat.read(cx).mono_status());
+                        .map_or("idle", |chat| chat.read(cx).minion_status());
                     (
-                        mono.label(),
-                        crate::monos::avatar::avatar(&mono.mascot, mono.color, status, 16., true),
+                        minion.label(),
+                        crate::minions::avatar::avatar(&minion.mascot, minion.color, status, 16., true),
                     )
                 })
             });
-        let (picker_label, picker_mark) = active_mono.map_or_else(
+        let (picker_label, picker_mark) = active_minion.map_or_else(
             || {
                 (
                     format!(
@@ -730,7 +730,7 @@ impl Shell {
                     self.project_mark(&self.workspace.project, 16.),
                 )
             },
-            |(name, mark)| (format!("Switch project, current mono {name}"), mark),
+            |(name, mark)| (format!("Switch project, current minion {name}"), mark),
         );
         div()
             .w_full()
@@ -739,8 +739,8 @@ impl Shell {
             .flex_col()
             .items_center()
             .gap(px(6.))
-            .when_some(mono_rail, |d, monos| {
-                d.child(monos)
+            .when_some(minion_rail, |d, minions| {
+                d.child(minions)
                     .child(div().w(px(24.)).h(px(1.)).bg(content(0.07)))
             })
             .child(
@@ -815,7 +815,7 @@ impl Shell {
                 .on_click(cx.listener(move |this, _, w, cx| {
                     this.leave_app_views(cx);
                     this.leave_app_search(cx);
-                    if let Some(m) = &this.monos {
+                    if let Some(m) = &this.minions {
                         m.update(cx, |m, cx| m.close(cx));
                     }
                     this.select_classic_sidebar_tab(tab, w, cx);
@@ -1162,7 +1162,7 @@ impl Shell {
             .position(|p| p == &path)
             .unwrap_or(ix);
         let selected =
-            self.workspace.project == path && !self.app_view_open() && !self.mono_active(cx);
+            self.workspace.project == path && !self.app_view_open() && !self.minion_active(cx);
         let label = self.project_label(&path);
         let tooltip = label.clone();
         let menu_path = path.clone();

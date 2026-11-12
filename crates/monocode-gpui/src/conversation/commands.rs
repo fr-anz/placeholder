@@ -50,7 +50,7 @@ impl Conversation {
             || self.account_switching
             || self.preparing_worktree
             || self.is_remote()
-            || self.settings.mono.is_some()
+            || self.settings.minion.is_some()
             || self.settings.worktree_removed
         {
             self.status = "/visualize is not available in this session.".into();
