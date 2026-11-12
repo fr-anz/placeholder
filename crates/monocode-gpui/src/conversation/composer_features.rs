@@ -519,6 +519,7 @@ impl Conversation {
         if self.orchestration_plan.is_none()
             && self.orchestration_error.is_none()
             && self.orchestration_progress.is_none()
+            && self.orchestration_report.is_none()
         {
             return None;
         }
@@ -621,6 +622,29 @@ impl Conversation {
                     tool_pill("stop-orchestration", "Stop agents")
                         .child("Stop agents")
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(StopOrchestration))),
+                );
+        }
+        if let Some(report) = self
+            .orchestration_report
+            .as_ref()
+            .filter(|_| self.orchestration_progress.is_none())
+        {
+            card = card
+                .child(
+                    div()
+                        .id("orchestration-report")
+                        .max_h(px(240.))
+                        .overflow_y_scroll()
+                        .text_color(content(0.7))
+                        .child(report.clone()),
+                )
+                .child(
+                    tool_pill("dismiss-orchestration-report", "Dismiss report")
+                        .child("Dismiss")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.orchestration_report = None;
+                            cx.notify();
+                        })),
                 );
         }
         Some(card.into_any_element())

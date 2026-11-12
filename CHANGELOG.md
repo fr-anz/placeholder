@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Orchestrated runs in a Git project give each assignment its own worktree, run up to four at once, and merge approved work one at a time into a separate integration branch, after an optional check command. Uncommitted work is included when a run starts. Nothing is merged into your branch: the run ends with the integration branch for you to review.
+- The **review** agent checks every assignment before it merges. Requested changes, merge conflicts and failed checks go back to the same worker automatically, with two fix rounds in total, and every fix is reviewed again.
+- When a task needs judgment, a separate **decider** session answers it: retry, rerun on another agent, split it into 2–4 smaller assignments, skip it, or leave it to you. It starts with only the plan, so a decision does not resend the orchestrator's whole conversation. Pick its model in **Settings → Agents → Decisions**; by default it uses the run's lead.
+- Failed assignments have **Retry**, **Rerun fresh** and **Skip** buttons in the sidebar, and a finished run shows a report built by the app without a model call.
+- **Settings → Agents → Decide on every task** asks the decider before every merge instead of only on failures.
+- Board cards can be **Solo** or **Orchestrate**. A solo card goes straight to one implementer, on the **implement** agent, with review and merge as usual and no planning turn; an orchestrated card gets a coordinator that plans several workers. Each card shows its mode, and a click switches it before the card starts. The new-card form has the same switch.
+- The board's message bar is now the full chat composer of the board orchestrator: attach files and images, paste screenshots, pick the model, and use slash commands. Its **Cards** chip sets how the orchestrator picks modes for the cards it creates: **Auto** (it decides per card), **Solo** or **Orchestrate**.
+- **Settings → Worktrees → Agent run setup** sets, per project, a setup command for new worktrees, ignored files to copy into them, and a check command to run after each merge. A team can commit the same settings as `.placeholder/orchestration.json`.
+
 ### Changed
+
+- The board orchestrator is no longer woken when a card's plan is ready or a task finishes. Each message you send it still carries the board's changes since its last turn, so an unattended board uses no model turns.
+- Orchestration plans no longer include separate review assignments; the review agent reviews each assignment instead.
+- Minion chats show the prompt outline rail on the right again, including in the narrow floating window, so you can jump between your messages.
 
 - The agent feature **Mono**/**Monos** is now **Minion**/**Minions**. Minions get person-style names from a built-in list that starts with Franz, then Vincent; existing Minions that had no name of their own get one from the list on upgrade, so the old "MonoCat"-style labels are gone. A name you chose yourself is kept.
 - Existing Monos keep their history: the saved roster moves to its new setting key on first load, other saved state is still read from its old keys, and sessions, habits and transcripts are unchanged. A rebound or disabled "Toggle Minion" shortcut keeps working.

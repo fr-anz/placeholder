@@ -111,6 +111,25 @@ impl Shell {
             orchestrator: locked(&self.store)
                 .map(|store| monocode_core::roles::load_orchestrator(&store))
                 .unwrap_or_default(),
+            escalate_always: locked(&self.store).is_ok_and(|store| {
+                monocode_core::orchestration::pipeline::load_escalate(&store)
+                    == monocode_core::orchestration::pipeline::Escalate::Always
+            }),
+            decider: locked(&self.store)
+                .map(|store| monocode_core::roles::load_decider(&store))
+                .unwrap_or_default(),
+            orchestration_setups: locked(&self.store)
+                .map(|store| {
+                    self.workspace
+                        .projects
+                        .iter()
+                        .filter_map(|p| {
+                            monocode_core::orchestration::worktrees::local_setup(&store, p)
+                                .map(|s| (p.clone(), s))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             catalogs,
             classic: self.workspace.classic_layout,
             new_layout_boxy: self.workspace.new_layout_boxy,
@@ -264,6 +283,32 @@ impl Shell {
                     let result = locked(&this.store)
                         .and_then(|store| monocode_core::roles::save_orchestrator(&store, role));
                     if let Err(error) = result {
+                        this.error = Some(error);
+                    }
+                    this.sync_settings(cx);
+                }
+                SettingsEvent::SaveEscalateAlways(always) => {
+                    use monocode_core::orchestration::pipeline::{self, Escalate};
+                    let value = if *always { Escalate::Always } else { Escalate::OnFailure };
+                    if let Err(error) =
+                        locked(&this.store).and_then(|store| pipeline::save_escalate(&store, value))
+                    {
+                        this.error = Some(error);
+                    }
+                    this.sync_settings(cx);
+                }
+                SettingsEvent::SaveDecider(role) => {
+                    if let Err(error) = locked(&this.store)
+                        .and_then(|store| monocode_core::roles::save_decider(&store, role))
+                    {
+                        this.error = Some(error);
+                    }
+                    this.sync_settings(cx);
+                }
+                SettingsEvent::SaveProjectSetup { project, setup } => {
+                    if let Err(error) = locked(&this.store).and_then(|store| {
+                        monocode_core::orchestration::worktrees::save_setup(&store, project, setup)
+                    }) {
                         this.error = Some(error);
                     }
                     this.sync_settings(cx);

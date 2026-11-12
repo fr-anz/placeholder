@@ -12,7 +12,7 @@ pub fn validate(action: &str, input: &Value) -> Result<(), String> {
         "worktrees.create"=>"branch base existing project",
         "folders.move"=>"sessionId folderId newFolderName project",
         "notes.list"=>"limit offset","notes.read"=>"id","notes.write"=>"id title body tags",
-        "board.list"=>"project","board.add"=>"title details start project","board.start"=>"card project",
+        "board.list"=>"project","board.add"=>"title details mode start project","board.start"=>"card project",
         "artifacts.list"=>"kind limit offset","artifacts.read"=>"id","artifacts.write"=>"id kind title body summary",
         "soul.update"=>"text expectedHash","memory.read"=>"topic","memory.search"=>"query since",
         "memory.add"=>"fact topic until","memory.replace"=>"find fact topic until","memory.remove"=>"find topic",

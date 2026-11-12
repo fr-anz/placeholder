@@ -526,6 +526,9 @@ fn run_turn_using(
             } else {
                 monocode_core::board::digest_changes(&seen, &digest.text)
             };
+            // The composer's "Cards" choice can change between any two turns.
+            let note = monocode_core::board::load_cards_preference(&store, &project).note();
+            let added = if added.is_empty() { note } else { format!("{added}\n\n{note}") };
             let prompt = match &settings.handoff {
                 Some(handoff) => monocode_core::response::wrap_handoff_prompt(
                     &handoff.from,

@@ -1,6 +1,8 @@
 //! Project board: cards with a stable number and a spec. A backlog card has no
-//! lead; starting it creates an orchestrator session (the card's coordinator)
-//! whose live state decides the card's lane.
+//! lead; starting it creates the card's lead session, whose live state decides
+//! the card's lane. An orchestrated card's lead is a coordinator that plans
+//! workers; a solo card's lead runs one implementer through the same review
+//! and merge pipeline without a planning turn.
 use serde::{Deserialize, Serialize};
 
 /// `native_settings` key holding every project's cards as JSON.
@@ -21,6 +23,7 @@ pub struct Card {
     pub details: String,
     /// The coordinator session once the card is started.
     pub lead: Option<i64>,
+    pub mode: CardMode,
     pub archived: bool,
     /// Unix seconds.
     pub created_at: u64,
@@ -85,6 +88,99 @@ pub fn status_label(card: &Card, state: Option<LeadState>) -> &'static str {
     }
 }
 
+/// How a card is worked once it starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CardMode {
+    /// A coordinator plans workers; for multi-file or multi-step work.
+    #[default]
+    Orchestrate,
+    /// One implementer works the card directly; for small, contained changes.
+    Solo,
+}
+impl CardMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "solo" => Some(Self::Solo),
+            "orchestrate" | "orchestrated" => Some(Self::Orchestrate),
+            _ => None,
+        }
+    }
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Orchestrate => "orchestrate",
+            Self::Solo => "solo",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Orchestrate => "Orchestrate",
+            Self::Solo => "Solo",
+        }
+    }
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Orchestrate => Self::Solo,
+            Self::Solo => Self::Orchestrate,
+        }
+    }
+}
+
+/// The board composer's "Cards" choice: how the orchestrator sets the mode of
+/// cards it creates from the user's messages.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CardsPreference {
+    /// The orchestrator picks per card.
+    #[default]
+    Auto,
+    Solo,
+    Orchestrate,
+}
+impl CardsPreference {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::Solo, Self::Orchestrate];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Solo => "Solo",
+            Self::Orchestrate => "Orchestrate",
+        }
+    }
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Auto => "The orchestrator picks Solo or Orchestrate for each card",
+            Self::Solo => "New cards are worked by one implementer",
+            Self::Orchestrate => "New cards get a coordinator and workers",
+        }
+    }
+    /// What the orchestrator is told on every turn.
+    pub fn note(self) -> String {
+        let rule = match self {
+            Self::Auto => "Pick each new card's `mode` yourself: `solo` for small, contained changes, `orchestrate` for multi-file or multi-step work.",
+            Self::Solo => "Create new cards with `mode: \"solo\"`.",
+            Self::Orchestrate => "Create new cards with `mode: \"orchestrate\"`.",
+        };
+        format!("<card_mode>The user's card mode is {}. {rule}</card_mode>", self.label())
+    }
+}
+pub const CARDS_PREFERENCE_PREFIX: &str = "fork.board_cards_mode:";
+pub fn load_cards_preference(store: &crate::store::Store, project: &str) -> CardsPreference {
+    store
+        .setting(&format!("{CARDS_PREFERENCE_PREFIX}{project}"))
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default()
+}
+pub fn save_cards_preference(
+    store: &crate::store::Store,
+    project: &str,
+    value: CardsPreference,
+) -> Result<(), String> {
+    let json = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+    store.save_setting(&format!("{CARDS_PREFERENCE_PREFIX}{project}"), &json)
+}
+
 /// Short project key for card ids, such as `CAP` in `CAP-12`.
 pub fn prefix(project_label: &str) -> String {
     let key: String = project_label
@@ -132,6 +228,7 @@ pub fn add(
     project: &str,
     title: &str,
     details: &str,
+    mode: CardMode,
 ) -> Result<Card, String> {
     let title = title.trim();
     if title.is_empty() {
@@ -146,6 +243,7 @@ pub fn add(
         title: title.chars().take(MAX_TITLE).collect(),
         details: details.trim().chars().take(MAX_DETAILS).collect(),
         lead: None,
+        mode,
         archived: false,
         created_at: crate::time::now_ms() / 1000,
     };
@@ -181,7 +279,7 @@ pub fn remove(store: &crate::store::Store, id: &str) -> Result<(), String> {
 /// orchestrator mode, so it answers with a reviewable plan that assigns roles.
 pub fn coordinator_brief(key: &str, card: &Card) -> String {
     let mut brief = format!(
-        "You coordinate board card {key}. Do not do the work yourself: plan assignments for workers and give each one a role so it runs on that role's provider and model. A typical plan maps the code with a scout, makes the change with implementers that depend on the scout, and ends with a reviewer that depends on the implementers. Give each assignment a self-contained prompt: workers do not see this conversation.\n\n## Card {key}: {}",
+        "You coordinate board card {key}. Do not do the work yourself: plan assignments for workers and give each one a role so it runs on that role's provider and model. A typical plan maps the code with a scout, then makes the change with implementers that depend on it; the app has the reviewer check each assignment before it merges, so do not add review assignments. Give each assignment a self-contained prompt: workers do not see this conversation.\n\n## Card {key}: {}",
         card.title
     );
     if !card.details.is_empty() {
@@ -189,6 +287,27 @@ pub fn coordinator_brief(key: &str, card: &Card) -> String {
         brief.push_str(&card.details);
     }
     brief
+}
+
+/// The single assignment a solo card runs: the card itself, scoped to the
+/// whole project, on the implementer role when there is one.
+pub fn solo_task(key: &str, card: &Card, role: Option<String>) -> crate::orchestration::Task {
+    let mut prompt = format!(
+        "Work board card {key} end to end: make the change, run focused checks, and report what you changed and how you verified it.\n\n## Card {key}: {}",
+        card.title
+    );
+    if !card.details.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(&card.details);
+    }
+    crate::orchestration::Task {
+        id: "card".into(),
+        title: card.title.clone(),
+        prompt,
+        files: vec![".".into()],
+        depends_on: Vec::new(),
+        role,
+    }
 }
 
 /// `native_settings` key mapping each project to its orchestrator session.
@@ -256,7 +375,7 @@ pub fn save_digest(store: &crate::store::Store, project: &str, digest: &Digest) 
 pub fn orchestrator_context(digest: &Digest) -> String {
     let (label, key) = (&digest.label, &digest.key);
     format!(
-        "<board_orchestrator>\nThe app adds this context, not the user. Act on it without quoting or describing it.\n\nYou are the orchestrator for the \"{label}\" board. The user talks to you to plan and steer work; you do not write code yourself. Reply conversationally and briefly.\n- Turn requests into well-scoped tasks with `board.add`: a short title and a self-contained spec in `details` (goal, relevant files if known, acceptance criteria). Split large requests into several tasks.\n- Tasks land in the backlog. Pass `start: true` only when the user asks to begin; otherwise let them review the specs and start tasks themselves.\n- `board.start` starts a backlog task by number ({key}-003 or 3). Its coordinator plans scout, implementer and reviewer assignments.\n- `board.list` lists the board with each task's coordinator session; read one with `sessions.read`.\n- Lanes move on their own: Backlog until started, In progress while agents run, Needs review when finished or waiting on the user.\n- Board updates arrive as app notes when a task's plan is ready, it waits on the user, or it finishes. Tell the user what needs them in a sentence or two. Never approve a plan or start work on the user's behalf unless they asked you to.\n- Later turns carry only the board's changes; run `board.list` when you need the whole board again.\n\nBoard now:\n{}\n</board_orchestrator>",
+        "<board_orchestrator>\nThe app adds this context, not the user. Act on it without quoting or describing it.\n\nYou are the orchestrator for the \"{label}\" board. The user talks to you to plan and steer work; you do not write code yourself. Reply conversationally and briefly.\n- Turn requests into well-scoped tasks with `board.add`: a short title and a self-contained spec in `details` (goal, relevant files if known, acceptance criteria). Split large requests into several tasks.\n- Give each task a `mode`: `solo` runs one implementer on it, which suits small, contained changes and costs no planning turn; `orchestrate` gives it a coordinator that plans several workers, for multi-file or multi-step work. Follow the user's card mode, which arrives with each message.\n- Tasks land in the backlog. The user can switch a task's mode before starting it. Pass `start: true` only when the user asks to begin; otherwise let them review the specs and start tasks themselves.\n- `board.start` starts a backlog task by number ({key}-003 or 3). An orchestrated task's coordinator plans scout and implementer assignments; a solo task goes straight to one implementer. Either way the app has the Reviewer role review each change before it merges.\n- `board.list` lists the board with each task's coordinator session; read one with `sessions.read`.\n- Lanes move on their own: Backlog until started, In progress while agents run, Needs review when finished or waiting on the user.\n- You are never woken by the app. Each message from the user carries the board's changes since your last turn; mention anything that needs them (a plan ready, a task finished or waiting) in a sentence or two. Never approve a plan or start work on the user's behalf unless they asked you to.\n- Run `board.list` when you need the whole board again.\n\nBoard now:\n{}\n</board_orchestrator>",
         if digest.text.trim().is_empty() { "No tasks yet." } else { digest.text.trim_end() }
     )
 }
@@ -275,16 +394,6 @@ pub fn digest_changes(seen: &str, now: &str) -> String {
         "<board_changes>\nChanged since your last turn:\n{}\n</board_changes>",
         changed.join("\n")
     )
-}
-
-/// Statuses worth waking the orchestrator for.
-pub fn notable(status: &str) -> bool {
-    matches!(status, "Plan ready" | "Waiting on you" | "Finished")
-}
-
-/// The app note that wakes the orchestrator: one line per changed task.
-pub fn event_note(changes: &[String]) -> String {
-    format!("Board update:\n{}", changes.join("\n"))
 }
 
 /// What a started card's coordinator shows as its first message.
@@ -320,10 +429,11 @@ pub fn snapshot(cards: &[Card], key: &str, state: impl Fn(&Card) -> Option<LeadS
         out.push_str(&format!("### {}\n", lane_kind.label()));
         for card in in_lane {
             out.push_str(&format!(
-                "- {} {} ({})\n",
+                "- {} {} ({}){}\n",
                 card_key(key, card.number),
                 card.title,
-                status_label(card, state(card))
+                status_label(card, state(card)),
+                if card.mode == CardMode::Solo { " [solo]" } else { "" }
             ));
         }
     }
@@ -406,17 +516,42 @@ mod tests {
     #[test]
     fn cards_persist_and_numbers_are_not_reused() {
         let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
-        assert!(add(&store, "/p", "  ", "").is_err());
-        let first = add(&store, "/p", "Fix login", "Users get logged out").unwrap();
-        let second = add(&store, "/p", "Add dark mode", "").unwrap();
+        assert!(add(&store, "/p", "  ", "", CardMode::Solo).is_err());
+        let first = add(&store, "/p", "Fix login", "Users get logged out", CardMode::Solo).unwrap();
+        let second = add(&store, "/p", "Add dark mode", "", CardMode::default()).unwrap();
         assert_eq!((first.number, second.number), (1, 2));
         remove(&store, &second.id).unwrap();
-        assert_eq!(add(&store, "/p", "Third", "").unwrap().number, 2);
+        assert_eq!(add(&store, "/p", "Third", "", CardMode::Solo).unwrap().number, 2);
         let updated = update(&store, &first.id, |c| c.lead = Some(3)).unwrap();
         assert_eq!(updated.lead, Some(3));
         assert_eq!(load(&store).len(), 2);
+        assert_eq!(updated.mode, CardMode::Solo);
         let brief = coordinator_brief("PRJ-1", &updated);
         assert!(brief.contains("## Card PRJ-1: Fix login\n\nUsers get logged out"));
+        assert!(brief.contains("do not add review assignments"));
+        let solo = solo_task("PRJ-1", &updated, Some("implement".into()));
+        assert_eq!((solo.files.clone(), solo.role.as_deref()), (vec![".".to_string()], Some("implement")));
+        assert!(solo.prompt.contains("## Card PRJ-1: Fix login\n\nUsers get logged out"));
+        assert!(crate::orchestration::validate(&crate::orchestration::Plan {
+            title: updated.title.clone(),
+            summary: String::new(),
+            tasks: vec![solo],
+        })
+        .is_ok());
+    }
+
+    #[test]
+    fn card_modes_default_to_orchestrate_and_preferences_round_trip() {
+        let old: Card = serde_json::from_str(r#"{"id":"x","project":"/p","number":1,"title":"Old"}"#).unwrap();
+        assert_eq!(old.mode, CardMode::Orchestrate, "cards saved before modes keep orchestrating");
+        assert_eq!(CardMode::parse("Solo"), Some(CardMode::Solo));
+        assert_eq!(CardMode::Solo.toggled(), CardMode::Orchestrate);
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        assert_eq!(load_cards_preference(&store, "/p"), CardsPreference::Auto);
+        save_cards_preference(&store, "/p", CardsPreference::Solo).unwrap();
+        assert_eq!(load_cards_preference(&store, "/p"), CardsPreference::Solo);
+        assert_eq!(load_cards_preference(&store, "/q"), CardsPreference::Auto);
+        assert!(CardsPreference::Solo.note().contains("mode: \"solo\""));
     }
 
     #[test]
@@ -439,7 +574,6 @@ mod tests {
             "<board_changes>\nChanged since your last turn:\n- CAP-2 B (Plan ready)\n- CAP-3 C (Not started)\n</board_changes>"
         );
         assert_eq!(digest_changes(now, now), "");
-        assert!(notable("Plan ready") && !notable("Planning"));
         assert_eq!(orchestrator_session(&store, "/p"), None);
         set_orchestrator_session(&store, "/p", 4).unwrap();
         set_orchestrator_session(&store, "/q", 5).unwrap();

@@ -87,6 +87,37 @@ pub fn save_orchestrator(store: &crate::store::Store, role: &Role) -> Result<(),
     )
 }
 
+/// `native_settings` key of the agent that answers orchestration escalations.
+pub const DECIDER_KEY: &str = "fork.decider_agent";
+
+/// The escalation decider. Unset fields fall back to the run's lead, so by
+/// default it decides on the same model that planned the run.
+pub fn load_decider(store: &crate::store::Store) -> Role {
+    store
+        .setting(DECIDER_KEY)
+        .ok()
+        .flatten()
+        .and_then(|json| serde_json::from_str::<Role>(&json).ok())
+        .filter(|role| role.provider.as_deref().is_none_or(|p| Kind::parse(p).is_some()))
+        .unwrap_or_else(|| Role {
+            id: "decider".into(),
+            label: "Decider".into(),
+            ..Role::default()
+        })
+}
+
+pub fn save_decider(store: &crate::store::Store, role: &Role) -> Result<(), String> {
+    if let Some(provider) = &role.provider {
+        if Kind::parse(provider).is_none() {
+            return Err(format!("Unknown provider \"{provider}\"."));
+        }
+    }
+    store.save_setting(
+        DECIDER_KEY,
+        &serde_json::to_string(role).map_err(|e| e.to_string())?,
+    )
+}
+
 pub fn valid_id(id: &str) -> bool {
     let mut chars = id.chars();
     id.len() <= 40
@@ -228,7 +259,7 @@ pub fn planning_brief(roles: &[Role]) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Worker roles: set each assignment's \"role\" to one of these ids so it runs on that role's provider, model and access policy.\n{list}\nA typical flow is a scout assignment to map the code, implementer assignments that depend on it, then a reviewer assignment that depends on the implementers and scopes the same files."
+        "Worker roles: set each assignment's \"role\" to one of these ids so it runs on that role's provider, model and access policy.\n{list}\nA typical flow is a scout assignment to map the code, then implementer assignments that depend on it. Do not add review assignments: when a `review` role exists, the app has it review every assignment before merging."
     )
 }
 

@@ -1,5 +1,9 @@
-//! Reviewable orchestration plans. Workers share a checkout; overlapping scopes
-//! are serialized even when they have no explicit dependency.
+//! Reviewable orchestration plans. In a Git checkout each task gets its own
+//! worktree and every change is reviewed before it merges (see `worktrees` and
+//! `pipeline`); elsewhere workers share the checkout and overlapping scopes are
+//! serialized even when they have no explicit dependency.
+pub mod pipeline;
+pub mod worktrees;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -22,7 +26,8 @@ pub struct SummaryTask {
     pub title: String,
     pub provider: String,
     pub model: Option<String>,
-    /// queued, running, completed, failed or blocked.
+    /// queued, running, reviewing, merging, escalated, completed, skipped,
+    /// split, failed or blocked.
     pub status: String,
 }
 impl SummaryTask {
@@ -31,21 +36,31 @@ impl SummaryTask {
         if needs_input {
             return "Needs input";
         }
-        if !summary.live && matches!(self.status.as_str(), "running" | "queued") {
+        if !summary.live
+            && matches!(
+                self.status.as_str(),
+                "running" | "queued" | "reviewing" | "merging" | "escalated"
+            )
+        {
             return "Saved";
         }
         match self.status.as_str() {
             "queued" => "Queued",
             "running" => "Working",
+            "reviewing" => "In review",
+            "merging" => "Merging",
+            "escalated" => "Asking orchestrator",
             "completed" => "Done",
+            "skipped" => "Skipped",
+            "split" => "Split up",
             "failed" => "Failed",
-            "blocked" => "Needs review",
+            "blocked" => "Blocked",
             _ => "Queued",
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
     pub title: String,
@@ -66,7 +81,7 @@ pub struct Plan {
 pub const INSTRUCTIONS: &str = r#"Prepare an orchestration plan for the user's request. Inspect the project with read-only tools. Do not edit or launch workers yet. The user will review and start the plan in MonoCode.
 Return a short explanation followed by exactly one JSON block between <monocode_orchestration> and </monocode_orchestration>.
 Schema: {"title":"short title","summary":"approach","tasks":[{"id":"task-1","title":"assignment title","prompt":"complete self-contained instructions, validation and expected report","files":["src/path"],"depends_on":[],"role":"role id or omit"}]}
-Use 1 to 12 assignments, unique ASCII IDs, exact project-relative file or directory scopes ('.' for the whole project), and dependency IDs. Independent assignments may run concurrently (up to four); overlapping scopes run serially. A worker without a role uses this session's provider, model and access policy. Include verification in the assignments. Never claim that workers have already started."#;
+Use 1 to 12 assignments, unique ASCII IDs, exact project-relative file or directory scopes ('.' for the whole project), and dependency IDs. Up to four assignments run at once. In a Git project each runs in its own worktree and merges after review, so keep scopes from overlapping where you can: overlapping assignments conflict at merge time. Outside Git, overlapping scopes run serially. A worker without a role uses this session's provider, model and access policy. Include verification in the assignments. Never claim that workers have already started."#;
 pub fn parse(text: &str) -> Result<Plan, String> {
     let body = text
         .split_once("<monocode_orchestration>")

@@ -28,6 +28,8 @@ pub(super) struct Discovery {
     pub mcp: Vec<McpServer>,
     pub mcp_error: Option<String>,
     pub worktrees: ResultTrees,
+    /// The project's committed agent-run setup, if any.
+    pub run_setup_file: Option<monocode_core::orchestration::worktrees::ProjectSetup>,
 }
 #[derive(Clone, Debug)]
 pub(super) struct Tree {
@@ -52,6 +54,9 @@ pub(super) fn discover(cwd: &str) -> Discovery {
             .collect(),
         ..Default::default()
     };
+    if !cwd.is_empty() {
+        data.run_setup_file = monocode_core::orchestration::worktrees::file_setup(Path::new(cwd));
+    }
     data.skills = monocode_core::skills::list_skills(cwd.into(), None)
         .unwrap_or_default()
         .into_iter()

@@ -720,6 +720,8 @@ pub(crate) struct Shell {
     inbox: Option<Entity<crate::inbox::Inbox>>,
     automations: Option<Entity<crate::automations::Automations>>,
     board: Option<Entity<crate::board::Board>>,
+    /// The board orchestrator's composer under the lanes, with its project.
+    board_dock: Option<(String, Entity<crate::conversation::ComposerDock>)>,
     active_app_view: Option<app_views::AppView>,
     app_view_events: Vec<Subscription>,
     automation_state: automation_runs::State,
@@ -1107,6 +1109,7 @@ impl Shell {
             inbox: None,
             automations: None,
             board: None,
+            board_dock: None,
             active_app_view: None,
             app_view_events: Vec::new(),
             automation_state: Default::default(),

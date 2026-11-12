@@ -89,7 +89,7 @@ impl TranscriptView {
     }
     /// Read after the list lays out, like the React rail's deferred measure.
     pub(super) fn update_outline(&mut self, cx: &mut Context<Self>) {
-        if self.minion || !self.visible || self.viewport.size.height <= px(0.) {
+        if !self.visible || self.viewport.size.height <= px(0.) {
             return;
         }
         let active = self.measure_active();
@@ -156,11 +156,12 @@ impl TranscriptView {
         cx.notify();
     }
     pub(super) fn outline_visible_at(&self, width: gpui::Pixels) -> bool {
-        !self.minion
-            && !self.document
+        // Minion chats are narrow by design (the floating window is 440px),
+        // so the React rail's 58rem cutoff applies only to session panes.
+        !self.document
             && self.visible
             && self.outline.prompts.len() >= MIN_PROMPTS
-            && width >= px(MIN_PANE_WIDTH)
+            && (self.minion || width >= px(MIN_PANE_WIDTH))
     }
     pub(super) fn outline(
         &mut self,

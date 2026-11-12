@@ -169,6 +169,10 @@ pub(crate) struct Conversation {
     pub(crate) orchestration_plan: Option<monocode_core::orchestration::Plan>,
     orchestration_error: Option<String>,
     pub(crate) orchestration_progress: Option<String>,
+    /// The app-built report of a finished run, shown until dismissed.
+    pub(crate) orchestration_report: Option<String>,
+    /// A board orchestrator's "Cards" choice, read from the store once.
+    board_cards: Option<monocode_core::board::CardsPreference>,
     status: String,
     loaded: bool,
     history_unloaded: bool,
@@ -626,6 +630,8 @@ impl Conversation {
             orchestration_plan: None,
             orchestration_error: None,
             orchestration_progress: None,
+            orchestration_report: None,
+            board_cards: None,
             status: "Loading conversation…".into(),
             loaded: false,
             history_unloaded: false,
@@ -2657,90 +2663,6 @@ impl Conversation {
             ComposerMenu::Setting(ix) => self.minion_setting_menu(ix),
         }
     }
-    /// The composer's "Model and settings" menu for a host outside this chat,
-    /// such as the board: reasoning, fast, service tier and the provider's
-    /// controls, then Model with its picker. Picks apply to this conversation;
-    /// a model pick closes the menu. The host keeps the subscriptions.
-    pub(crate) fn model_settings_menu(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> (Entity<Menu>, Vec<Subscription>) {
-        let provider = Kind::from_id(&self.summary.provider);
-        let menu_cell: std::rc::Rc<std::cell::RefCell<Option<gpui::WeakEntity<Menu>>>> =
-            Default::default();
-        let list = cx.new(|cx| {
-            let hidden = cx
-                .try_global::<crate::settings::Preferences>()
-                .map(|p| p.hidden_for(&self.summary.cwd))
-                .unwrap_or_default();
-            ModelList::new_for(
-                provider,
-                self.model.clone(),
-                &self.summary.cwd,
-                self.settings.account.clone(),
-                cx,
-            )
-            .hide_providers(hidden)
-            .allow_provider_switch(true)
-        });
-        let mut events = vec![cx.subscribe(&list, {
-            let menu_cell = menu_cell.clone();
-            move |this, _, picked: &ModelPicked, cx| {
-                if this.apply_model_pick(picked, cx) {
-                    remember_model(picked.0, picked.1.clone(), cx);
-                    if let Some(menu) = menu_cell.borrow().as_ref().and_then(|m| m.upgrade()) {
-                        menu.update(cx, |_, cx| cx.emit(MenuEvent::Dismissed));
-                    }
-                }
-            }
-        })];
-        let focus = list.read(cx).search_focus(cx);
-        let mut items = self.minion_model_options();
-        items.push(
-            MenuAction::new("model", "Model")
-                .value_image(provider.id())
-                .value(self.model_info().map_or_else(
-                    || model_name(provider, self.model.as_deref()),
-                    |model| model_display_name(provider, &model.id, &model.name),
-                ))
-                .flyout(Flyout {
-                    view: list.into(),
-                    width: 310.,
-                    padding: 0.,
-                    height: Some(442.),
-                    max_height: None,
-                    focus: Some(focus),
-                    surface: None,
-                })
-                .into(),
-        );
-        let menu = cx.new(|cx| {
-            Menu::new("Model and settings", items, window, cx)
-                .width(250.)
-                .style(MenuStyle::Settings)
-        });
-        *menu_cell.borrow_mut() = Some(menu.downgrade());
-        events.push(cx.subscribe(&menu, |this, menu, event: &MenuEvent, cx| {
-            if let MenuEvent::Picked(id, _) = event {
-                let toggle = menu.read(cx).toggle_state(id);
-                this.menu_choice(id, cx);
-                if let Some(on) = toggle {
-                    menu.update(cx, |menu, cx| menu.set_toggle(id, !on, cx));
-                }
-                cx.notify();
-            }
-        }));
-        (menu, events)
-    }
-    /// The model chip's label and its reasoning level, as the composer shows them.
-    pub(crate) fn model_chip(&self) -> (SharedString, Option<SharedString>) {
-        let effort = self
-            .model_info()
-            .is_some_and(|m| !m.efforts.is_empty())
-            .then(|| self.effort_label());
-        (self.model_label(), effort)
-    }
     /// The model trigger: the composer's model menu.
     #[cfg(test)]
     pub(crate) fn toggle_model_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2870,6 +2792,59 @@ impl Conversation {
         let color = self.project_appearance.color(&self.summary.cwd);
         runner.update(cx, |r, cx| r.configure(self.busy, name, color, cx));
         Some(runner)
+    }
+    /// The board composer's "Cards" chip: how the board orchestrator sets the
+    /// mode of cards it creates. A click moves to the next choice.
+    fn board_cards_pill(&mut self, cx: &mut Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
+        use monocode_core::board::{CardsPreference, load_cards_preference, save_cards_preference};
+        let project = self.settings.board_orchestrator.clone()?;
+        let current = *self.board_cards.get_or_insert_with(|| {
+            crate::runtime::locked(&self.store)
+                .map(|store| load_cards_preference(&store, &project))
+                .unwrap_or_default()
+        });
+        let next = CardsPreference::ALL
+            [(CardsPreference::ALL.iter().position(|p| *p == current).unwrap_or(0) + 1)
+                % CardsPreference::ALL.len()];
+        Some(
+            tool_pill("composer-board-cards", "Card mode")
+                .aria_label(format!(
+                    "Cards: {}. {}. Click for {}",
+                    current.label(),
+                    current.description(),
+                    next.label()
+                ))
+                .child(icon(
+                    match current {
+                        CardsPreference::Auto => "sparkles",
+                        CardsPreference::Solo => "user",
+                        CardsPreference::Orchestrate => "git-merge",
+                    },
+                    14.,
+                ))
+                .child(pill_label(format!("Cards: {}", current.label())))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    // The chip only moves once the choice is saved, so it
+                    // never shows a mode the orchestrator will not be told.
+                    if crate::runtime::locked(&this.store)
+                        .and_then(|store| save_cards_preference(&store, &project, next))
+                        .is_ok()
+                    {
+                        this.board_cards = Some(next);
+                        cx.notify();
+                    }
+                })),
+        )
+    }
+    /// The composer alone, for a chat shown elsewhere, such as the board's
+    /// orchestrator under the lanes. Attachments can be dropped on it.
+    pub(crate) fn docked_composer(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        self.attachment_drop_target("docked-composer", cx)
+            .w_full()
+            .max_w(px(COMPOSER_COLUMN))
+            .px(px(10.))
+            .child(self.composer(window, cx))
+            .into_any_element()
     }
     fn composer(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let radius = COMPOSER_RADIUS;
@@ -3105,6 +3080,7 @@ impl Conversation {
                                             .child(icon("chevron-down", 12.)),
                                     )
                                     .children(controls)
+                                    .children(self.board_cards_pill(cx))
                                     .child(
                                         tool_pill("composer-access", "Access")
                                             .aria_label(format!(
@@ -4938,4 +4914,28 @@ pub(crate) fn fast_bolt() -> gpui::Div {
     div()
         .flex_shrink_0()
         .child(icon("zap", 12.).text_color(gpui::rgb(0xfbbf24)))
+}
+
+/// A chat's composer on its own, rendered from the chat so it keeps every
+/// feature: attachments, images, the model menu, modes and slash commands.
+pub(crate) struct ComposerDock {
+    conversation: Entity<Conversation>,
+    _observe: gpui::Subscription,
+}
+impl ComposerDock {
+    pub(crate) fn new(conversation: Entity<Conversation>, cx: &mut Context<Self>) -> Self {
+        let _observe = cx.observe(&conversation, |_, _, cx| cx.notify());
+        Self { conversation, _observe }
+    }
+    pub(crate) fn conversation(&self) -> &Entity<Conversation> {
+        &self.conversation
+    }
+}
+impl Render for ComposerDock {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let composer = self
+            .conversation
+            .update(cx, |conversation, cx| conversation.docked_composer(window, cx));
+        div().w_full().flex().justify_center().child(composer)
+    }
 }

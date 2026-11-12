@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn minion_renders_date_pills_and_removes_the_session_outline(cx: &mut gpui::TestAppContext) {
+    fn minion_renders_date_pills_and_keeps_the_outline_at_any_width(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| cx.set_reduce_motion(true));
         let window = cx.update(|cx| {
             cx.open_window(
@@ -404,7 +404,11 @@ mod tests {
             })
             .unwrap();
         visual.run_until_parked();
-        assert!(visual.debug_bounds("prompt-outline").is_none());
         assert!(visual.debug_bounds("minion-day-separator").is_some());
+        assert!(visual.debug_bounds("prompt-outline").is_some(), "Minion chats keep the outline");
+        // The floating Minion window is 440px wide, well under the session cutoff.
+        visual.simulate_resize(size(px(440.), px(700.)));
+        visual.run_until_parked();
+        assert!(visual.debug_bounds("prompt-outline").is_some());
     }
 }

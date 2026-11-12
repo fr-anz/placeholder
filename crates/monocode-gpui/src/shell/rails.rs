@@ -3,6 +3,7 @@
 //! its row. Each rail opens while its thread, or one of the thread's
 //! sessions, is in view, chosen or working, and RevealHeight grows it in.
 use super::*;
+use super::orchestration::TaskAction;
 use crate::reveal::{Disclosure, bezier};
 use std::time::{Duration, Instant};
 
@@ -767,10 +768,12 @@ impl Shell {
                         });
                         let open = self.rails.open_tasks.contains(&(lead, ix)) || needs_input;
                         let label = task.label(summary, needs_input);
-                        let working = summary.live && task.status == "running" && !needs_input;
+                        let working = summary.live
+                            && matches!(task.status.as_str(), "running" | "reviewing" | "merging")
+                            && !needs_input;
                         let alert =
                             needs_input || matches!(task.status.as_str(), "failed" | "blocked");
-                        let done = task.status == "completed";
+                        let done = matches!(task.status.as_str(), "completed" | "skipped" | "split");
                         let tone: gpui::Hsla = if alert {
                             rgb(0xfbbf24).into()
                         } else if working {
@@ -920,6 +923,7 @@ impl Shell {
                                 .hover(|s| s.bg(content(0.25)).text_color(content(1.)))
                                 .child(label)
                         };
+                        let actionable = self.orchestration_task_actionable(lead, ix);
                         let details = div()
                             .pl(px(if classic { 26. } else { 6. }))
                             .pt(px(if classic { 0. } else { 6. }))
@@ -939,6 +943,32 @@ impl Shell {
                                     .child(provider_icon(&task.provider, 14.))
                                     .child(div().min_w_0().truncate().child(model)),
                             )
+                            .when(actionable, |d| {
+                                d.child(
+                                    div()
+                                        .flex()
+                                        .flex_wrap()
+                                        .items_center()
+                                        .gap_1()
+                                        .children(
+                                            [
+                                                ("rail-agent-retry", "Retry", TaskAction::Retry),
+                                                ("rail-agent-rerun", "Rerun fresh", TaskAction::Rerun),
+                                                ("rail-agent-skip", "Skip", TaskAction::Skip),
+                                            ]
+                                            .into_iter()
+                                            .map(|(id, label, action)| {
+                                                solid(id, label).on_click(cx.listener(
+                                                    move |this, _, _, cx| {
+                                                        this.orchestration_task_action(
+                                                            lead, ix, action, cx,
+                                                        )
+                                                    },
+                                                ))
+                                            }),
+                                        ),
+                                )
+                            })
                             .when(worker.is_some() || running, |d| {
                                 d.child(
                                     div()

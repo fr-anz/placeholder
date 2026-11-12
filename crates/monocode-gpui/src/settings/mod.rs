@@ -51,6 +51,12 @@ pub(crate) struct SettingsContext {
     pub roles: Vec<monocode_core::roles::Role>,
     /// What card coordinators and new board orchestrators start on.
     pub orchestrator: monocode_core::roles::Role,
+    /// Whether the orchestrator decides on every reviewed task, not only failures.
+    pub escalate_always: bool,
+    /// The agent that answers orchestration escalations.
+    pub decider: monocode_core::roles::Role,
+    /// This machine's worktree setup for each project that has one.
+    pub orchestration_setups: HashMap<String, monocode_core::orchestration::worktrees::ProjectSetup>,
     pub classic: bool,
     pub new_layout_boxy: bool,
     /// The selected project, or empty outside one.
@@ -80,6 +86,9 @@ impl PartialEq for SettingsContext {
         self.minions == other.minions
             && self.roles == other.roles
             && self.orchestrator == other.orchestrator
+            && self.escalate_always == other.escalate_always
+            && self.decider == other.decider
+            && self.orchestration_setups == other.orchestration_setups
             && self.classic == other.classic
             && self.new_layout_boxy == other.new_layout_boxy
             && self.cwd == other.cwd
@@ -132,6 +141,13 @@ pub(crate) enum SettingsEvent {
     /// Replace the worker roles; an empty list restores the defaults.
     SaveRoles(Vec<monocode_core::roles::Role>),
     SaveOrchestrator(monocode_core::roles::Role),
+    SaveEscalateAlways(bool),
+    SaveDecider(monocode_core::roles::Role),
+    /// This machine's worktree setup for a project; an empty one clears it.
+    SaveProjectSetup {
+        project: String,
+        setup: monocode_core::orchestration::worktrees::ProjectSetup,
+    },
     /// Read mobile access again: the router and pairing change on their own.
     MobileRefresh,
     MobileConfigure {
@@ -254,6 +270,8 @@ pub(crate) struct SettingsView {
     discovery_loading: bool,
     discovery_task: Option<Task<()>>,
     selected_project: String,
+    /// The project whose setup the run-setup fields were last filled from.
+    run_setup_for: Option<String>,
     provider_scope: String,
     mcp_filter: String,
     fields: HashMap<&'static str, Entity<Input>>,
@@ -405,6 +423,7 @@ impl SettingsView {
             discovery_loading: false,
             discovery_task: None,
             selected_project,
+            run_setup_for: None,
             provider_scope: "global".into(),
             mcp_filter: "all".into(),
             fields: HashMap::new(),

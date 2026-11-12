@@ -232,7 +232,12 @@ impl Shell {
             Some(AppView::Automations) => {
                 self.automations.as_ref().map(|view| view.focus_handle(cx))
             }
-            Some(AppView::Board) => self.board.as_ref().map(|view| view.focus_handle(cx)),
+            // Typing on the board goes to the orchestrator's docked composer.
+            Some(AppView::Board) => self
+                .board_dock
+                .as_ref()
+                .map(|(_, dock)| dock.read(cx).conversation().read(cx).input.focus_handle(cx))
+                .or_else(|| self.board.as_ref().map(|view| view.focus_handle(cx))),
             None => return false,
         };
         if let Some(focus) = focus {

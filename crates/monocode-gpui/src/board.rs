@@ -1,31 +1,26 @@
 //! The project board: Backlog, In progress and Needs review lanes derived from
-//! each card's coordinator session. Starting a card hands it to the shell,
-//! which opens an orchestrator session that plans role-assigned workers.
+//! each card's lead session. Starting a card hands it to the shell, which
+//! opens a coordinator for an orchestrated card or one implementer for a solo
+//! card. The message bar is the board orchestrator's own chat composer.
 use crate::{
     input::{self, Input},
-    popover::{Anchor, AnchorSlot, Menu, MenuEvent, Side, menu_popover},
     runtime::{Database, locked},
     theme::*,
 };
-use monocode_core::provider::Kind;
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla,
-    Role, SharedString, Stateful, Subscription, Window, div, prelude::*, px,
+    AnyElement, AnyView, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
+    Hsla, Role, SharedString, Stateful, Subscription, Window, div, prelude::*, px,
 };
-use monocode_core::board::{self, Card, Lane, LeadState};
+use monocode_core::board::{self, Card, CardMode, Lane, LeadState};
 use std::collections::HashMap;
 
 pub(crate) enum Event {
     Close,
     OpenSession(i64),
-    /// Start a backlog card: the shell creates its coordinator session.
+    /// Start a backlog card: the shell creates its lead session.
     Start(Card),
-    /// Message the project's orchestrator.
-    Ask(String),
     /// Cards were added, deleted, archived or restored.
     Changed,
-    /// Open the orchestrator's model and settings menu over the chip.
-    OpenModelMenu,
 }
 
 /// What a started card's coordinator runs on and how its workers are doing.
@@ -61,25 +56,23 @@ pub(crate) struct Board {
     states: HashMap<i64, LeadState>,
     infos: HashMap<i64, LeadInfo>,
     orchestrator: Option<OrchestratorStatus>,
-    /// What the orchestrator runs on, or will run on once created.
-    /// The orchestrator's provider, model label and reasoning label.
-    chip: (Kind, SharedString, Option<SharedString>),
-    model_anchor: AnchorSlot,
-    menu: Option<Entity<Menu>>,
-    _menu_events: Vec<Subscription>,
+    /// The board orchestrator's chat composer, docked under the lanes.
+    dock: Option<AnyView>,
+    focus: FocusHandle,
     tab: Tab,
     composing: bool,
+    /// The mode of the card being composed.
+    compose_mode: CardMode,
     title: Entity<Input>,
     details: Entity<Input>,
-    ask: Entity<Input>,
     error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<Event> for Board {}
 impl Focusable for Board {
-    fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.ask.focus_handle(cx)
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
     }
 }
 
@@ -104,7 +97,7 @@ fn lane_color(lane: Lane) -> Hsla {
 fn worker_color(status: &str) -> Hsla {
     match status {
         "completed" => green(1.),
-        "running" => amber(1.),
+        "running" | "reviewing" | "merging" | "escalated" => amber(1.),
         "failed" | "blocked" => danger(1.),
         _ => content(0.18),
     }
@@ -201,21 +194,9 @@ impl Board {
             input.set_max_height(160.);
             input
         });
-        let ask = cx.new(|cx| {
-            let mut input = Input::field(
-                "Message the board orchestrator",
-                "Ask the orchestrator to plan or start tasks…",
-                content(0.35),
-                cx,
-            );
-            input.set_yields_when_empty(true);
-            input
-        });
         let subscriptions = vec![
             cx.subscribe(&title, |this, _, _: &input::Submitted, cx| this.add(cx)),
             cx.subscribe(&title, |_, _, _: &input::Changed, cx| cx.notify()),
-            cx.subscribe(&ask, |this, _, _: &input::Submitted, cx| this.ask(cx)),
-            cx.subscribe(&ask, |_, _, _: &input::Changed, cx| cx.notify()),
         ];
         Self {
             store,
@@ -225,15 +206,13 @@ impl Board {
             states: HashMap::new(),
             infos: HashMap::new(),
             orchestrator: None,
-            chip: (Kind::Claude, SharedString::default(), None),
-            model_anchor: AnchorSlot::default(),
-            menu: None,
-            _menu_events: Vec::new(),
+            dock: None,
+            focus: cx.focus_handle(),
             tab: Tab::Active,
             composing: false,
+            compose_mode: CardMode::default(),
             title,
             details,
-            ask,
             error: None,
             _subscriptions: subscriptions,
         }
@@ -271,43 +250,12 @@ impl Board {
         }
     }
 
-    pub(crate) fn set_chip(
-        &mut self,
-        kind: Kind,
-        model: SharedString,
-        effort: Option<SharedString>,
-        cx: &mut Context<Self>,
-    ) {
-        if self.chip != (kind, model.clone(), effort.clone()) {
-            self.chip = (kind, model, effort);
+    /// The board orchestrator's composer view; `None` outside a project.
+    pub(crate) fn set_dock(&mut self, dock: Option<AnyView>, cx: &mut Context<Self>) {
+        if self.dock.as_ref().map(|d| d.entity_id()) != dock.as_ref().map(|d| d.entity_id()) {
+            self.dock = dock;
             cx.notify();
         }
-    }
-
-    /// Shows the orchestrator's menu; `events` apply its picks to the chat.
-    pub(crate) fn show_menu(
-        &mut self,
-        menu: Entity<Menu>,
-        mut events: Vec<Subscription>,
-        cx: &mut Context<Self>,
-    ) {
-        events.push(cx.subscribe(&menu, |this, menu, event: &MenuEvent, cx| {
-            let keep = match event {
-                // A toggle such as Fast stays open, as in the composer.
-                MenuEvent::Picked(id, _) => menu.read(cx).toggle_state(id).is_some(),
-                MenuEvent::Dismissed => false,
-            };
-            // The chip follows the pick right away.
-            cx.emit(Event::Changed);
-            if !keep {
-                this.menu = None;
-                this._menu_events.clear();
-                cx.notify();
-            }
-        }));
-        self.menu = Some(menu);
-        self._menu_events = events;
-        cx.notify();
     }
 
     /// Leads of this project's started cards, for the shell to report on.
@@ -358,7 +306,8 @@ impl Board {
             return;
         }
         let details = self.details.read(cx).content.to_string();
-        match locked(&self.store).and_then(|s| board::add(&s, &self.cwd, &title, &details)) {
+        let mode = self.compose_mode;
+        match locked(&self.store).and_then(|s| board::add(&s, &self.cwd, &title, &details, mode)) {
             Ok(_) => {
                 self.error = None;
                 self.cancel_compose(cx);
@@ -367,15 +316,6 @@ impl Board {
         }
         self.refresh(cx);
         cx.emit(Event::Changed);
-    }
-
-    fn ask(&mut self, cx: &mut Context<Self>) {
-        let message = self.ask.read(cx).content.trim().to_owned();
-        if message.is_empty() || self.cwd.is_empty() {
-            return;
-        }
-        self.ask.update(cx, |i, cx| i.set_text(String::new(), cx));
-        cx.emit(Event::Ask(message));
     }
 
     fn change(&mut self, id: &str, change: impl FnOnce(&mut Card), cx: &mut Context<Self>) {
@@ -482,8 +422,11 @@ impl Board {
             .child(
                 div()
                     .flex()
+                    .items_center()
                     .justify_end()
                     .gap_1p5()
+                    .child(self.compose_mode_switch(cx))
+                    .child(div().flex_1())
                     .child(
                         card_button("board-compose-cancel".into(), "Cancel", Tone::Plain)
                             .on_click(cx.listener(|this, _, _, cx| this.cancel_compose(cx))),
@@ -504,7 +447,12 @@ impl Board {
         let info = card.lead.and_then(|lead| self.infos.get(&lead)).cloned();
         let id = card.id.clone();
 
-        let mut actions = div().flex().items_center().gap_1p5();
+        let mut actions = div()
+            .flex()
+            .items_center()
+            .gap_1p5()
+            .child(self.mode_chip(card, lane == Some(Lane::Backlog), cx))
+            .child(div().flex_1());
         match lane {
             Some(Lane::Backlog) => {
                 let start = card.clone();
@@ -923,98 +871,111 @@ impl Board {
         )
     }
 
-    /// One panel: the latest reply, the field, then the model and send.
-    fn composer(&self, cx: &mut Context<Self>) -> AnyElement {
-        let can_ask = !self.ask.read(cx).content.trim().is_empty() && !self.cwd.is_empty();
-        let (kind, model_label, effort) = self.chip.clone();
-        let picking = self.menu.is_some();
-        let model_chip = div()
-            .id("board-model")
-            .role(Role::Button)
-            .aria_label("Orchestrator model")
-            .aria_expanded(picking)
-            .cursor_pointer()
-            .relative()
-            .h(px(28.))
-            .px_2()
+    /// Solo or Orchestrate for the card being composed.
+    fn compose_mode_switch(&self, cx: &mut Context<Self>) -> AnyElement {
+        let current = self.compose_mode;
+        div()
             .flex()
             .items_center()
-            .gap_1p5()
-            .rounded_lg()
-            .text_size(px(12.))
-            .text_color(content(0.75))
-            .when(picking, |d| d.bg(content(0.08)))
-            .hover(|s| s.bg(content(0.08)).text_color(content(1.)))
-            .child(self.model_anchor.probe())
-            .child(provider_icon(kind.id(), 14.))
-            .child(div().max_w(px(220.)).truncate().child(model_label))
-            .when_some(effort, |d, effort| d.child(div().text_color(content(0.45)).child(effort)))
-            .child(icon("chevron-down", 12.).text_color(content(0.4)))
-            .on_click(cx.listener(|this, _, _, cx| {
-                if this.menu.take().is_some() {
-                    this._menu_events.clear();
-                    cx.notify();
-                } else {
-                    cx.emit(Event::OpenModelMenu);
-                }
-            }));
-        let send = div()
-            .id("board-ask")
-            .role(Role::Button)
-            .aria_label("Send to the orchestrator")
-            .cursor_pointer()
-            .size(px(30.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .bg(content(if can_ask { 0.92 } else { 0.1 }))
-            .child(icon("arrow-up", 15.).text_color(if can_ask {
-                floating_fill().opacity(1.)
-            } else {
-                content(0.35)
+            .p(px(2.))
+            .gap(px(2.))
+            .rounded_md()
+            .bg(content(0.05))
+            .children([CardMode::Solo, CardMode::Orchestrate].map(|mode| {
+                let on = mode == current;
+                div()
+                    .id(SharedString::from(format!("board-compose-mode-{}", mode.id())))
+                    .role(Role::Button)
+                    .aria_label(format!("{} card", mode.label()))
+                    .aria_selected(on)
+                    .cursor_pointer()
+                    .h(px(22.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .rounded(px(5.))
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(content(if on { 0.95 } else { 0.5 }))
+                    .when(on, |d| d.bg(content(0.1)))
+                    .hover(|s| s.text_color(content(1.)))
+                    .child(mode.label())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.compose_mode = mode;
+                        cx.notify();
+                    }))
             }))
-            .on_click(cx.listener(|this, _, _, cx| this.ask(cx)));
+            .into_any_element()
+    }
+
+    /// The card's mode. Before a card starts, a click switches it.
+    fn mode_chip(&self, card: &Card, editable: bool, cx: &mut Context<Self>) -> AnyElement {
+        let mode = card.mode;
+        let (glyph, tone) = match mode {
+            CardMode::Solo => ("user", content(0.6)),
+            CardMode::Orchestrate => ("git-merge", accent_color()),
+        };
+        let chip = div()
+            .id(SharedString::from(format!("board-mode-{}", card.id)))
+            .h(px(22.))
+            .px(px(7.))
+            .flex()
+            .items_center()
+            .gap_1()
+            .rounded_md()
+            .border_1()
+            .border_color(content(0.1))
+            .text_size(px(11.))
+            .text_color(tone)
+            .child(icon(glyph, 11.).text_color(tone))
+            .child(mode.label());
+        if !editable {
+            return chip.into_any_element();
+        }
+        let id = card.id.clone();
+        chip.role(Role::Button)
+            .aria_label(format!(
+                "{} card; switch to {}",
+                mode.label(),
+                mode.toggled().label()
+            ))
+            .cursor_pointer()
+            .hover(|s| s.bg(content(0.06)))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.change(&id, |c| c.mode = c.mode.toggled(), cx)
+            }))
+            .into_any_element()
+    }
+
+    /// The orchestrator's latest reply over its real chat composer, so the
+    /// board gets attachments, images, the model menu and slash commands.
+    fn composer(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex_shrink_0()
-            .px_4()
-            .pb_4()
-            .pt_2()
+            .px_2()
+            .pb_2()
+            .pt_1()
             .flex()
-            .justify_center()
-            .child(
+            .flex_col()
+            .items_center()
+            .children(self.reply(cx).map(|reply| {
                 div()
                     .w_full()
-                    .max_w(px(760.))
-                    .rounded(px(16.))
-                    .border_1()
-                    .border_color(composer_border(false))
-                    .bg(composer_fill())
-                    .shadow(composer_shadow())
-                    .overflow_hidden()
-                    .flex()
-                    .flex_col()
-                    .children(self.reply(cx))
-                    .child(div().px_4().pt_3().pb_1().child(self.ask.clone()))
+                    .max_w(px(740.))
+                    .px(px(10.))
+                    .mb_1()
                     .child(
                         div()
-                            .px_2()
-                            .pb_2()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .child(model_chip)
-                            .child(div().flex_1())
-                            .child(
-                                div()
-                                    .pr_2()
-                                    .text_size(px(11.))
-                                    .text_color(content(0.35))
-                                    .child("Orchestrator plans and starts tasks"),
-                            )
-                            .child(send),
-                    ),
-            )
+                            .rounded(px(14.))
+                            .border_1()
+                            .border_color(content(0.08))
+                            .bg(content(0.03))
+                            .overflow_hidden()
+                            .child(reply),
+                    )
+            }))
+            .children(self.dock.clone().map(|dock| div().w_full().flex().justify_center().child(dock)))
             .into_any_element()
     }
 }
@@ -1046,10 +1007,7 @@ impl gpui::Render for Board {
             .text_color(content(1.))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
-                    if this.menu.take().is_some() {
-                        this._menu_events.clear();
-                        cx.notify();
-                    } else if this.composing {
+                    if this.composing {
                         this.cancel_compose(cx);
                     } else {
                         cx.emit(Event::Close);
@@ -1069,10 +1027,8 @@ impl gpui::Render for Board {
                 )
             })
             .child(body)
+            .track_focus(&self.focus)
             .when(!self.cwd.is_empty(), |d| d.child(self.composer(cx)))
-            .children(self.menu.clone().map(|menu| {
-                menu_popover(&menu, Anchor::Slot(self.model_anchor.clone()), cx).side(Side::Top)
-            }))
     }
 }
 

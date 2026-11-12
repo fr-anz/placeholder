@@ -16,6 +16,7 @@ use std::collections::HashMap;
 
 /// The orchestrator's key; roles use `role:<id>`.
 const ORCHESTRATOR: &str = "orchestrator";
+const DECIDER: &str = "decider";
 
 #[derive(Default)]
 pub(in crate::settings) struct AgentsState {
@@ -55,6 +56,9 @@ impl SettingsView {
         if key == ORCHESTRATOR {
             return Some(self.ctx.orchestrator.clone());
         }
+        if key == DECIDER {
+            return Some(self.ctx.decider.clone());
+        }
         let id = key.strip_prefix("role:")?;
         self.ctx.roles.iter().find(|r| r.id == id).cloned()
     }
@@ -65,6 +69,11 @@ impl SettingsView {
             change(&mut role);
             self.ctx.orchestrator = role.clone();
             cx.emit(SettingsEvent::SaveOrchestrator(role));
+        } else if key == DECIDER {
+            let mut role = self.ctx.decider.clone();
+            change(&mut role);
+            self.ctx.decider = role.clone();
+            cx.emit(SettingsEvent::SaveDecider(role));
         } else if let Some(id) = key.strip_prefix("role:") {
             let mut roles = self.ctx.roles.clone();
             if let Some(role) = roles.iter_mut().find(|r| r.id == id) {
@@ -113,7 +122,11 @@ impl SettingsView {
             return;
         }
         let Some(role) = self.agent(&key) else { return };
-        let inherit = if key == ORCHESTRATOR { "Default" } else { "Inherit" };
+        let inherit = match key.as_str() {
+            ORCHESTRATOR => "Default",
+            DECIDER => "Same as the run's lead",
+            _ => "Inherit",
+        };
         // Unset agents open the picker on Claude Code; the rail switches providers.
         let set = role.provider.as_deref().and_then(Kind::parse);
         let kind = set.unwrap_or(Kind::Claude);
@@ -327,8 +340,40 @@ impl SettingsView {
                 .into_any_element(),
         ];
         let orchestrator = self.ctx.orchestrator.clone();
-        let rows = self.agent_rows(ORCHESTRATOR, &orchestrator, "Default", cx);
+        let mut rows = self.agent_rows(ORCHESTRATOR, &orchestrator, "Default", cx);
+        let always = self.ctx.escalate_always;
+        let toggle = self.toggle(
+            "orchestrator-escalate-always",
+            "Decide on every task",
+            always,
+            false,
+            cx,
+            |_, on, cx| cx.emit(SettingsEvent::SaveEscalateAlways(on)),
+        );
+        rows.push(self.row(
+            None,
+            false,
+            "Decide on every task",
+            Some(
+                "Off: reviewed tasks merge on their own and the decider is only asked when a task fails. On: it decides before every merge, which uses more of its subscription."
+                    .into(),
+            ),
+            vec![toggle],
+        ));
         groups.push(self.group(Some("worker-roles"), true, "Orchestrator", None, None, rows));
+        let decider = self.ctx.decider.clone();
+        let rows = self.agent_rows(DECIDER, &decider, "Same as the run's lead", cx);
+        groups.push(self.group(
+            None,
+            false,
+            "Decisions",
+            Some(
+                "Answers a run's escalations (retry, rerun, split, skip) in its own session that starts with only the plan, so a decision costs a few thousand tokens instead of the lead's whole conversation. Unset, it uses the lead's model; read-only unless you pick an approval."
+                    .into(),
+            ),
+            None,
+            rows,
+        ));
         let roles = self.ctx.roles.clone();
         let only = roles.len() == 1;
         for role in &roles {
