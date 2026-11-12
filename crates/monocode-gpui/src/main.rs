@@ -243,6 +243,7 @@ fn main() {
     let mut use_monocode = bundle_uses_monocode_data().unwrap_or(false);
     let mut monocode_db = monocode_core::store::monocode_database();
     let mut check_data = false;
+    let mut open_board = false;
     let mut explicit_cwd = false;
     let mut cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     while let Some(arg) = args.next() {
@@ -257,13 +258,14 @@ fn main() {
                 monocode_db = PathBuf::from(args.next().expect("--monocode-db needs a path"));
             }
             "--check-data" => check_data = true,
+            "--board" => open_board = true,
             "--cwd" => {
                 explicit_cwd = true;
                 cwd = PathBuf::from(args.next().expect("--cwd needs a path"));
             }
             "--help" | "-h" => {
                 println!(
-                    "monocode-gpui [--cwd PATH] [--dev-data | --monocode-data | --monocode-db PATH]\nAll builds use this app's own database by default; the MonoCode database is opened only on request.\n--dev-data opens an isolated development database using Monocode's existing schema.\n--monocode-data opens the existing desktop monocode.db directly.\n--monocode-db PATH opens a specific desktop database.\n--fixture, --chat-fixture and --visual-fixture add local samples to isolated development data only.\nvisual docs prints the native visual SDK reference.\nvisual check/show --input FILE validates or publishes native session visuals.\nvisual-mcp runs the session visual tool server over standard input/output.\n--check-data validates and lists the selected store read-only, then exits."
+                    "monocode-gpui [--cwd PATH] [--dev-data | --monocode-data | --monocode-db PATH]\nAll builds use this app's own database by default; the MonoCode database is opened only on request.\n--dev-data opens an isolated development database using Monocode's existing schema.\n--monocode-data opens the existing desktop monocode.db directly.\n--monocode-db PATH opens a specific desktop database.\n--fixture, --chat-fixture and --visual-fixture add local samples to isolated development data only.\nvisual docs prints the native visual SDK reference.\nvisual check/show --input FILE validates or publishes native session visuals.\nvisual-mcp runs the session visual tool server over standard input/output.\n--check-data validates and lists the selected store read-only, then exits.\n--board opens the project board on launch."
                 );
                 return;
             }
@@ -520,6 +522,9 @@ fn main() {
                         )
                     });
                     shell.update(cx, |shell, cx| shell.focus_active(window, cx));
+                    if open_board {
+                        shell.update(cx, |shell, cx| shell.open_board(window, cx));
+                    }
                     #[cfg(target_os = "macos")]
                     {
                         traffic_lights::pin(window, theme::TITLE_BAR_HEIGHT);

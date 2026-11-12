@@ -7,7 +7,7 @@ use monocode_core::board::{Card, Lane, LeadState};
 use serde_json::{Value, json};
 
 impl Shell {
-    pub(super) fn open_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.prepare_app_view(window, cx);
         if self.board.is_none() {
             let view = cx.new(|cx| board::Board::new(self.store.clone(), cx));
@@ -69,18 +69,40 @@ impl Shell {
         }
     }
 
+    /// The coordinator's provider and model, and each worker's status.
+    fn lead_info(&self, lead: i64, cx: &App) -> board::LeadInfo {
+        let metadata = self.session_metadata(lead, cx);
+        board::LeadInfo {
+            provider: metadata.summary.provider.clone(),
+            model: self
+                .sessions
+                .get(&lead)
+                .and_then(|v| v.read(cx).settings.model.clone())
+                .or_else(|| self.session_details.get(&lead).and_then(|d| d.model.clone())),
+            workers: self
+                .orchestration_summaries
+                .get(&lead)
+                .map(|s| s.tasks.iter().map(|t| t.status.clone()).collect())
+                .unwrap_or_default(),
+        }
+    }
+
     /// Pushes the started cards' coordinator states to an open board.
     pub(super) fn sync_board(&mut self, cx: &mut Context<Self>) {
         let Some(view) = self.board.clone() else {
             return;
         };
-        let states = view
-            .read(cx)
-            .leads()
-            .into_iter()
-            .map(|lead| (lead, self.lead_state(lead, cx)))
+        let leads = view.read(cx).leads();
+        let states = leads
+            .iter()
+            .map(|&lead| (lead, self.lead_state(lead, cx)))
             .collect();
-        view.update(cx, |view, cx| view.set_states(states, cx));
+        let infos = leads
+            .iter()
+            .filter(|&&lead| self.session_summaries.contains_key(&lead) || self.sessions.contains_key(&lead))
+            .map(|&lead| (lead, self.lead_info(lead, cx)))
+            .collect();
+        view.update(cx, |view, cx| view.set_states(states, infos, cx));
     }
 
     /// Opens the card's coordinator: an orchestrator session in the card's
