@@ -102,22 +102,39 @@ impl Conversation {
     }
     /// Sends `text` as the user's message while the agent receives `prepared`
     /// instead; it queues behind a running turn like any follow-up.
+    /// `mode` is the turn's one-shot mode, such as `orchestrator` for a plan.
     pub(crate) fn send_with_context(
         &mut self,
         text: String,
         prepared: String,
+        mode: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.send_queued(text, Some(prepared), mode, cx);
+    }
+    /// Sends `text` as if typed in this chat, queued behind a running turn.
+    pub(crate) fn send_text(&mut self, text: String, cx: &mut Context<Self>) {
+        self.send_queued(text, None, None, cx);
+    }
+    fn send_queued(
+        &mut self,
+        text: String,
+        prepared: Option<String>,
+        mode: Option<String>,
         cx: &mut Context<Self>,
     ) {
         // Restoring history reloads the saved queue; queue after it, as sends do.
         if self.needs_history_restore() {
             self.defer_history_action(
-                move |this, cx| this.send_with_context(text, prepared, cx),
+                move |this, cx| this.send_queued(text, prepared, mode, cx),
                 cx,
             );
             return;
         }
-        let mut message = self.message(text, Vec::new(), None, cx);
-        message.prepared_prompt = Some(prepared);
+        let mut message = self.message(text, Vec::new(), mode, cx);
+        if prepared.is_some() {
+            message.prepared_prompt = prepared;
+        }
         self.follow_ups.motion.insert(
             &message.id,
             self.follow_ups.state.messages.is_empty(),

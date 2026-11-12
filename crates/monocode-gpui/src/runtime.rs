@@ -489,6 +489,36 @@ fn run_turn_using(
             // Outside the hashed context, so the clock never resends it.
             let now = chrono::Local::now().format("%A %-d %B %Y, %H:%M");
             format!("{intro}\n\n{brief}\n\n<local_time>{now}</local_time>\n{prompt}")
+        } else if let Some(project) = settings.board_orchestrator.clone() {
+            // One long-lived thread: its provider session rotates when full. A
+            // fresh session gets the role, the board and a brief of the chat;
+            // a continuing one gets only what changed on the board.
+            if provider_id.is_some() && context.ratio().is_some_and(|r| r >= 0.8) {
+                provider_id = None;
+                locked(&store)?.reset_provider_id(summary.id)?;
+            }
+            let store = locked(&store)?;
+            let digest = monocode_core::board::load_digest(&store, &project);
+            let seen_key = format!("fork.board_seen:{}", summary.id);
+            let seen = store.setting(&seen_key)?.unwrap_or_default();
+            store.save_setting(&seen_key, &digest.text)?;
+            let added = if provider_id.is_none() {
+                let mut fresh = monocode_core::board::orchestrator_context(&digest);
+                if turn_start > 0 {
+                    fresh.push_str("\n\n");
+                    fresh.push_str(&monocode_core::mono::rotation_brief(
+                        &transcript.rows[..turn_start],
+                    ));
+                }
+                fresh
+            } else {
+                monocode_core::board::digest_changes(&seen, &digest.text)
+            };
+            if added.is_empty() {
+                prompt
+            } else {
+                format!("{added}\n\n{prompt}")
+            }
         } else if let Some(handoff) = &settings.handoff {
             monocode_core::response::wrap_handoff_prompt(&handoff.from, &handoff.brief, &prompt)
         } else if provider_id.is_none() && turn_start > 0 {

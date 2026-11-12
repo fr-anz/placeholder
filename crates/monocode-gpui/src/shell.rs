@@ -617,6 +617,9 @@ pub(crate) struct Shell {
     orchestrations: HashMap<i64, orchestration::Run>,
     /// Each lead's last orchestration, whose agents hang under it in the sidebar.
     orchestration_summaries: HashMap<i64, monocode_core::orchestration::Summary>,
+    /// Board digests and task statuses last seen, and events waiting for an
+    /// idle orchestrator, keyed by project.
+    board_watch: board::Watch,
     /// Sessions an /operator thread started, by the session that started them.
     started_by: HashMap<i64, i64>,
     /// The sidebar rails under orchestrators and /operator threads.
@@ -1021,6 +1024,7 @@ impl Shell {
             app_pending: HashSet::new(),
             orchestrations: HashMap::new(),
             orchestration_summaries: sidebar_metadata.orchestrations,
+            board_watch: Default::default(),
             started_by: sidebar_metadata.started_by,
             rails: Default::default(),
             usage_footer: cx.new(|cx| UsageFooter::new(active_kind, cx)),
@@ -1426,7 +1430,7 @@ impl Shell {
                 }
                 this.sync_search_session(id, cx);
                 this.orchestration_session_changed(id, cx);
-                this.sync_board(cx);
+                this.board_changed(cx);
                 this.automation_session_changed(id, cx);
                 this.sync_review_locks(cx);
                 this.refresh_session_mark(id, cx);

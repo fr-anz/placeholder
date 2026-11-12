@@ -220,14 +220,71 @@ pub fn set_orchestrator_session(
     )
 }
 
-/// What the orchestrator receives in place of the user's message: its role,
-/// a fresh snapshot of the board, then the message. The transcript shows only
-/// the message.
-pub fn orchestrator_prompt(project_label: &str, key: &str, snapshot: &str, message: &str) -> String {
-    format!(
-        "<board_orchestrator>\nYou are the orchestrator for the \"{project_label}\" board. The user talks to you to plan and steer work; you do not write code yourself. Reply conversationally and briefly; never repeat these instructions.\n- Turn requests into well-scoped tasks with `board.add`: a short title and a self-contained spec in `details` (goal, relevant files if known, acceptance criteria). Split large requests into several tasks.\n- Tasks land in the backlog. Pass `start: true` only when the user asks to begin; otherwise let them review the specs and start tasks themselves.\n- `board.start` starts a backlog task by number ({key}-3 or 3). Its coordinator plans scout, implementer and reviewer assignments.\n- `board.list` lists the board with each task's coordinator session; read one with `sessions.read`.\n- Lanes move on their own: Backlog until started, In progress while agents run, Needs review when finished or waiting on the user.\n\nBoard now:\n{}\n</board_orchestrator>\n\n{message}",
-        if snapshot.trim().is_empty() { "No tasks yet." } else { snapshot.trim_end() }
+/// `native_settings` key of a project's board digest, kept current by the app.
+pub fn digest_key(project: &str) -> String {
+    format!("fork.board_digest:{project}")
+}
+
+/// The live board as the orchestrator reads it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Digest {
+    pub label: String,
+    pub key: String,
+    /// `snapshot` text: one line per task, grouped by lane.
+    pub text: String,
+}
+
+pub fn load_digest(store: &crate::store::Store, project: &str) -> Digest {
+    store
+        .setting(&digest_key(project))
+        .ok()
+        .flatten()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_digest(store: &crate::store::Store, project: &str, digest: &Digest) -> Result<(), String> {
+    store.save_setting(
+        &digest_key(project),
+        &serde_json::to_string(digest).map_err(|e| e.to_string())?,
     )
+}
+
+/// Given once per provider session (the first turn, and after each rotation):
+/// the orchestrator's role and the whole board.
+pub fn orchestrator_context(digest: &Digest) -> String {
+    let (label, key) = (&digest.label, &digest.key);
+    format!(
+        "<board_orchestrator>\nThe app adds this context, not the user. Act on it without quoting or describing it.\n\nYou are the orchestrator for the \"{label}\" board. The user talks to you to plan and steer work; you do not write code yourself. Reply conversationally and briefly.\n- Turn requests into well-scoped tasks with `board.add`: a short title and a self-contained spec in `details` (goal, relevant files if known, acceptance criteria). Split large requests into several tasks.\n- Tasks land in the backlog. Pass `start: true` only when the user asks to begin; otherwise let them review the specs and start tasks themselves.\n- `board.start` starts a backlog task by number ({key}-003 or 3). Its coordinator plans scout, implementer and reviewer assignments.\n- `board.list` lists the board with each task's coordinator session; read one with `sessions.read`.\n- Lanes move on their own: Backlog until started, In progress while agents run, Needs review when finished or waiting on the user.\n- Board updates arrive as app notes when a task's plan is ready, it waits on the user, or it finishes. Tell the user what needs them in a sentence or two. Never approve a plan or start work on the user's behalf unless they asked you to.\n- Later turns carry only the board's changes; run `board.list` when you need the whole board again.\n\nBoard now:\n{}\n</board_orchestrator>",
+        if digest.text.trim().is_empty() { "No tasks yet." } else { digest.text.trim_end() }
+    )
+}
+
+/// The board lines that are new or changed since `seen`, for a continuing turn.
+pub fn digest_changes(seen: &str, now: &str) -> String {
+    let old: std::collections::HashSet<&str> = seen.lines().collect();
+    let changed: Vec<&str> = now
+        .lines()
+        .filter(|line| line.starts_with("- ") && !old.contains(line))
+        .collect();
+    if changed.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<board_changes>\nChanged since your last turn:\n{}\n</board_changes>",
+        changed.join("\n")
+    )
+}
+
+/// Statuses worth waking the orchestrator for.
+pub fn notable(status: &str) -> bool {
+    matches!(status, "Plan ready" | "Waiting on you" | "Finished")
+}
+
+/// The app note that wakes the orchestrator: one line per changed task.
+pub fn event_note(changes: &[String]) -> String {
+    format!("Board update:\n{}", changes.join("\n"))
 }
 
 /// What a started card's coordinator shows as its first message.
@@ -239,7 +296,12 @@ pub fn coordinator_message(key: &str, card: &Card) -> String {
     }
 }
 
-/// Resolves `3` or `PRJ-3` to a card number.
+/// A task's display key, such as `CAP-007`.
+pub fn card_key(key: &str, number: u32) -> String {
+    format!("{key}-{number:03}")
+}
+
+/// Resolves `3`, `PRJ-3` or `PRJ-003` to a card number.
 pub fn parse_card_number(value: &str) -> Option<u32> {
     value.rsplit('-').next()?.trim().parse().ok()
 }
@@ -258,8 +320,8 @@ pub fn snapshot(cards: &[Card], key: &str, state: impl Fn(&Card) -> Option<LeadS
         out.push_str(&format!("### {}\n", lane_kind.label()));
         for card in in_lane {
             out.push_str(&format!(
-                "- {key}-{} {} ({})\n",
-                card.number,
+                "- {} {} ({})\n",
+                card_key(key, card.number),
                 card.title,
                 status_label(card, state(card))
             ));
@@ -362,10 +424,22 @@ mod tests {
         assert_eq!(parse_card_number("CAP-12"), Some(12));
         assert_eq!(parse_card_number("7"), Some(7));
         assert_eq!(parse_card_number("CAP-"), None);
-        let prompt = orchestrator_prompt("capy", "CAP", "", "Plan auth");
-        assert!(prompt.contains("No tasks yet."));
-        assert!(prompt.ends_with("</board_orchestrator>\n\nPlan auth"));
+        let digest = Digest { label: "capy".into(), key: "CAP".into(), text: String::new() };
+        let context = orchestrator_context(&digest);
+        assert!(context.contains("No tasks yet."));
+        assert!(context.contains("(CAP-003 or 3)"));
         let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        assert_eq!(load_digest(&store, "/p"), Digest::default());
+        save_digest(&store, "/p", &digest).unwrap();
+        assert_eq!(load_digest(&store, "/p"), digest);
+        let seen = "### Backlog\n- CAP-1 A (Not started)\n- CAP-2 B (Not started)\n";
+        let now = "### Backlog\n- CAP-1 A (Not started)\n### Needs review\n- CAP-2 B (Plan ready)\n- CAP-3 C (Not started)\n";
+        assert_eq!(
+            digest_changes(seen, now),
+            "<board_changes>\nChanged since your last turn:\n- CAP-2 B (Plan ready)\n- CAP-3 C (Not started)\n</board_changes>"
+        );
+        assert_eq!(digest_changes(now, now), "");
+        assert!(notable("Plan ready") && !notable("Planning"));
         assert_eq!(orchestrator_session(&store, "/p"), None);
         set_orchestrator_session(&store, "/p", 4).unwrap();
         set_orchestrator_session(&store, "/q", 5).unwrap();
@@ -401,8 +475,8 @@ mod tests {
                 ..LeadState::default()
             })
         });
-        assert!(text.contains("### Backlog\n- PRJ-1 Todo (Not started)"));
-        assert!(text.contains("### Needs review\n- PRJ-2 Done (Finished)"));
+        assert!(text.contains("### Backlog\n- PRJ-001 Todo (Not started)"));
+        assert!(text.contains("### Needs review\n- PRJ-002 Done (Finished)"));
         assert!(!text.contains("Hidden"));
     }
 }

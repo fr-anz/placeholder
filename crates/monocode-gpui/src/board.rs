@@ -18,8 +18,10 @@ pub(crate) enum Event {
     OpenSession(i64),
     /// Start a backlog card: the shell creates its coordinator session.
     Start(Card),
-    /// Ask the board orchestrator: the shell opens a fresh session for it.
+    /// Message the project's orchestrator.
     Ask(String),
+    /// Cards were added, deleted, archived or restored.
+    Changed,
 }
 
 /// What a started card's coordinator runs on and how its workers are doing.
@@ -107,6 +109,28 @@ fn ago(seconds: u64) -> String {
         3600..86400 => format!("{}h ago", s / 3600),
         _ => format!("{}d ago", s / 86400),
     }
+}
+
+/// Markdown as plain prose for a preview: text and inline code only; code
+/// blocks and tables are skipped, block ends become spaces.
+fn plain_excerpt(markdown: &str) -> String {
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+    let mut out = String::new();
+    let mut skip = 0usize;
+    for event in Parser::new_ext(markdown, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH) {
+        match event {
+            Event::Start(Tag::CodeBlock(_) | Tag::Table(_) | Tag::HtmlBlock) => skip += 1,
+            Event::End(TagEnd::CodeBlock | TagEnd::Table | TagEnd::HtmlBlock) => {
+                skip = skip.saturating_sub(1)
+            }
+            Event::Text(text) | Event::Code(text) if skip == 0 => out.push_str(&text),
+            Event::SoftBreak | Event::HardBreak if skip == 0 => out.push(' '),
+            Event::End(TagEnd::Heading(_)) if skip == 0 => out.push_str(". "),
+            Event::End(TagEnd::Paragraph | TagEnd::Item) if skip == 0 => out.push(' '),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[derive(Clone, Copy)]
@@ -286,6 +310,7 @@ impl Board {
             Err(error) => self.error = Some(error),
         }
         self.refresh(cx);
+        cx.emit(Event::Changed);
     }
 
     fn ask(&mut self, cx: &mut Context<Self>) {
@@ -302,6 +327,7 @@ impl Board {
             self.error = Some(error);
         }
         self.refresh(cx);
+        cx.emit(Event::Changed);
     }
 
     fn delete(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -309,6 +335,7 @@ impl Board {
             self.error = Some(error);
         }
         self.refresh(cx);
+        cx.emit(Event::Changed);
     }
 
     fn state(&self, card: &Card) -> Option<LeadState> {
@@ -415,7 +442,7 @@ impl Board {
     }
 
     fn card(&self, card: &Card, lane: Option<Lane>, cx: &mut Context<Self>) -> AnyElement {
-        let key = format!("{}-{:03}", self.key(), card.number);
+        let key = board::card_key(&self.key(), card.number);
         let state = self.state(card);
         let status = board::status_label(card, state);
         let info = card.lead.and_then(|lead| self.infos.get(&lead)).cloned();
@@ -756,8 +783,8 @@ impl Board {
 
     fn reply_strip(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let status = self.orchestrator.clone()?;
-        // A short single-line excerpt: replies can be long Markdown.
-        let collapsed = status.reply.split_whitespace().collect::<Vec<_>>().join(" ");
+        // A short plain-text excerpt: replies are Markdown.
+        let collapsed = plain_excerpt(&status.reply);
         let mut reply: String = collapsed.chars().take(280).collect();
         if collapsed.chars().count() > 280 {
             reply.push('…');
@@ -945,5 +972,17 @@ impl gpui::Render for Board {
             })
             .child(body)
             .when(!self.cwd.is_empty(), |d| d.child(self.message_bar(cx)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn previews_read_markdown_as_prose() {
+        let reply = "## Step 1: tighten the loop\n\nKeep **rows** `retained`.\n\n- one\n- two\n\n```rust\nfn x() {}\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+        assert_eq!(
+            super::plain_excerpt(reply),
+            "Step 1: tighten the loop. Keep rows retained. one two"
+        );
     }
 }

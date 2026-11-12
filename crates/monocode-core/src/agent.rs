@@ -131,6 +131,10 @@ pub struct Settings {
     /// A submitted /operator grants this thread access independently of its next draft.
     pub operator_enabled: bool,
     pub orchestrator: bool,
+    /// The project whose board this session orchestrates. The runtime gives it
+    /// its role and the board at each fresh provider session and the board's
+    /// changes on later turns.
+    pub board_orchestrator: Option<String>,
     pub new_worktree: bool,
     pub worktree_base: Option<String>,
     pub worktree_cwd: Option<String>,

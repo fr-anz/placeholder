@@ -3,8 +3,18 @@
 use super::app_views::AppView;
 use super::*;
 use crate::board;
-use monocode_core::board::{Card, Lane, LeadState};
+use monocode_core::board::{Card, Digest, Lane, LeadState};
 use serde_json::{Value, json};
+use std::collections::HashMap;
+
+/// What the shell last saw of every board, so it saves digests only when they
+/// change and tells orchestrators only about real transitions.
+#[derive(Default)]
+pub(super) struct Watch {
+    digests: HashMap<String, Digest>,
+    statuses: HashMap<String, &'static str>,
+    pending: HashMap<String, Vec<String>>,
+}
 
 impl Shell {
     pub(crate) fn open_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -19,6 +29,7 @@ impl Shell {
                     board::Event::OpenSession(id) => this.open(*id, window, cx),
                     board::Event::Start(card) => this.start_board_card(card.clone(), cx),
                     board::Event::Ask(message) => this.message_board_orchestrator(message.clone(), cx),
+                    board::Event::Changed => this.board_changed(cx),
                 },
             ));
             self.board = Some(view);
@@ -85,6 +96,88 @@ impl Shell {
         }
     }
 
+    /// Any session or card change: keep every board's digest current, wake
+    /// orchestrators about tasks that now need attention, and redraw the board.
+    pub(super) fn board_changed(&mut self, cx: &mut Context<Self>) {
+        let cards = match locked(&self.store) {
+            Ok(store) => monocode_core::board::load(&store),
+            Err(_) => return,
+        };
+        let mut projects: HashMap<String, Vec<Card>> = HashMap::new();
+        for card in cards.into_iter().filter(|c| !c.archived) {
+            projects.entry(card.project.clone()).or_default().push(card);
+        }
+        let mut saves = Vec::new();
+        for (project, cards) in &projects {
+            let label = self.project_label(project);
+            let key = monocode_core::board::prefix(&label);
+            let text = monocode_core::board::snapshot(cards, &key, |card| {
+                card.lead.map(|lead| self.lead_state(lead, cx))
+            });
+            for card in cards.iter().filter(|c| c.lead.is_some()) {
+                let state = card.lead.map(|lead| self.lead_state(lead, cx));
+                let status = monocode_core::board::status_label(card, state);
+                let previous = self.board_watch.statuses.insert(card.id.clone(), status);
+                // A first sighting (such as at launch) is not news.
+                if previous.is_some_and(|p| p != status) && monocode_core::board::notable(status) {
+                    self.board_watch.pending.entry(project.clone()).or_default().push(format!(
+                        "- {} {}: {}",
+                        monocode_core::board::card_key(&key, card.number),
+                        card.title,
+                        status.to_lowercase()
+                    ));
+                }
+            }
+            let digest = Digest { label, key, text };
+            if self.board_watch.digests.get(project) != Some(&digest) {
+                self.board_watch.digests.insert(project.clone(), digest.clone());
+                saves.push((project.clone(), digest));
+            }
+        }
+        if !saves.is_empty() {
+            let store = self.store.clone();
+            cx.background_executor()
+                .spawn(async move {
+                    if let Ok(store) = locked(&store) {
+                        for (project, digest) in saves {
+                            let _ = monocode_core::board::save_digest(&store, &project, &digest);
+                        }
+                    }
+                })
+                .detach();
+        }
+        self.flush_board_events(cx);
+        self.sync_board(cx);
+    }
+
+    /// Delivers waiting board events to each project's orchestrator once it is idle.
+    fn flush_board_events(&mut self, cx: &mut Context<Self>) {
+        let projects: Vec<String> = self.board_watch.pending.keys().cloned().collect();
+        for project in projects {
+            let orchestrator = locked(&self.store)
+                .ok()
+                .and_then(|store| monocode_core::board::orchestrator_session(&store, &project))
+                .filter(|id| self.session_summaries.contains_key(id) || self.sessions.contains_key(id));
+            let Some(id) = orchestrator else {
+                // No orchestrator yet: the board itself shows the change.
+                self.board_watch.pending.remove(&project);
+                continue;
+            };
+            if self.session_metadata(id, cx).busy {
+                continue;
+            }
+            let Some(view) = self.ensure_session(id, cx) else {
+                continue;
+            };
+            let changes = self.board_watch.pending.remove(&project).unwrap_or_default();
+            let note = monocode_core::board::event_note(&changes);
+            view.update(cx, |view, cx| {
+                view.settings.board_orchestrator = Some(project.clone());
+                view.send_coordinator_report(note, cx);
+            });
+        }
+    }
+
     /// Pushes the started cards' coordinator states to an open board.
     pub(super) fn sync_board(&mut self, cx: &mut Context<Self>) {
         let Some(view) = self.board.clone() else {
@@ -123,10 +216,9 @@ impl Shell {
     /// project whose first message is the card brief.
     pub(super) fn start_board_card(&mut self, card: Card, cx: &mut Context<Self>) {
         let cwd = card.project.clone();
-        let key = format!(
-            "{}-{}",
-            monocode_core::board::prefix(&self.project_label(&cwd)),
-            card.number
+        let key = monocode_core::board::card_key(
+            &monocode_core::board::prefix(&self.project_label(&cwd)),
+            card.number,
         );
         let choice = self.new_chat_choice(&cwd);
         let kind = choice.kind;
@@ -169,7 +261,7 @@ impl Shell {
                     this.add(summary, cx);
                     this.sessions[&id].update(cx, |view, cx| {
                         view.install_transfer(settings, None, cx);
-                        view.send_with_context(visible, prompt, cx);
+                        view.send_with_context(visible, prompt, Some("orchestrator".into()), cx);
                     });
                     // Saved here, not by the view: agents start cards with the board closed.
                     let saved = locked(&this.store).and_then(|store| {
@@ -181,7 +273,7 @@ impl Shell {
                     if let Some(board) = &this.board {
                         board.update(cx, |board, cx| board.refresh(cx));
                     }
-                    this.sync_board(cx);
+                    this.board_changed(cx);
                     this.persist(cx);
                 }
                 Err(error) => {
@@ -228,7 +320,7 @@ impl Shell {
                 Lane::NeedsReview => "needs_review",
             };
             json!({
-                "card": format!("{key}-{}", card.number),
+                "card": monocode_core::board::card_key(&key, card.number),
                 "number": card.number,
                 "title": card.title,
                 "details": card.details.chars().take(500).collect::<String>(),
@@ -269,9 +361,9 @@ impl Shell {
                     .map(|store| monocode_core::board::load(&store))?
                     .into_iter()
                     .find(|c| c.project == project && c.number == number && !c.archived)
-                    .ok_or_else(|| format!("No card {key}-{number} on this board"))?;
+                    .ok_or_else(|| format!("No task {} on this board", monocode_core::board::card_key(&key, number)))?;
                 if card.lead.is_some() {
-                    return Err(format!("{key}-{number} has already started"));
+                    return Err(format!("{} has already started", monocode_core::board::card_key(&key, number)));
                 }
                 let value = card_json(self, &card, cx);
                 self.start_board_card(card, cx);
@@ -282,25 +374,20 @@ impl Shell {
         if let Some(board) = &self.board {
             board.update(cx, |board, cx| board.refresh(cx));
         }
+        self.board_changed(cx);
         result
     }
 
-    /// Sends a board message to the project's orchestrator, creating it on the
-    /// first message. The transcript shows the message; the agent also gets its
-    /// role and a fresh snapshot of the board.
+    /// Sends a board message to the project's long-lived orchestrator, creating
+    /// it on the first message. The runtime adds its role and the board.
     fn message_board_orchestrator(&mut self, message: String, cx: &mut Context<Self>) {
         let cwd = self.workspace.project.clone();
         if cwd.is_empty() {
             return;
         }
+        // Make sure the digest it reads is current.
+        self.board_changed(cx);
         let label = self.project_label(&cwd);
-        let key = self.board_key(&cwd);
-        let prepared = monocode_core::board::orchestrator_prompt(
-            &label,
-            &key,
-            &self.board_snapshot(&cwd, cx),
-            &message,
-        );
         let existing = locked(&self.store)
             .ok()
             .and_then(|store| monocode_core::board::orchestrator_session(&store, &cwd))
@@ -313,7 +400,10 @@ impl Shell {
         if let Some(id) = existing
             && let Some(view) = self.ensure_session(id, cx)
         {
-            view.update(cx, |view, cx| view.send_with_context(message, prepared, cx));
+            view.update(cx, |view, cx| {
+                view.settings.board_orchestrator = Some(cwd.clone());
+                view.send_text(message, cx);
+            });
             self.sync_board(cx);
             return;
         }
@@ -334,6 +424,7 @@ impl Shell {
                 .unwrap_or_default(),
             operator: true,
             operator_enabled: true,
+            board_orchestrator: Some(cwd.clone()),
             ..Default::default()
         };
         let title = format!("Orchestrator · {label}");
@@ -356,7 +447,7 @@ impl Shell {
                     this.add(summary, cx);
                     this.sessions[&id].update(cx, |view, cx| {
                         view.install_transfer(settings, None, cx);
-                        view.send_with_context(message, prepared, cx);
+                        view.send_text(message, cx);
                     });
                     this.sync_board(cx);
                     this.persist(cx);
@@ -421,6 +512,44 @@ mod tests {
     }
 
     #[gpui::test]
+    fn board_changes_keep_digests_and_queue_only_real_transitions(cx: &mut TestAppContext) {
+        let (window, _, lead) = crate::shell::tests::window(cx);
+        window
+            .update(cx, |shell, _, cx| {
+                let project = "/work/monocode";
+                let card = {
+                    let store = locked(&shell.store).unwrap();
+                    let card = monocode_core::board::add(&store, project, "Ship it", "").unwrap();
+                    monocode_core::board::update(&store, &card.id, |c| c.lead = Some(lead)).unwrap()
+                };
+                shell.board_changed(cx);
+                // First sighting: recorded, not news.
+                assert_eq!(shell.board_watch.statuses.get(&card.id), Some(&"Finished"));
+                assert!(shell.board_watch.pending.is_empty());
+                let digest = &shell.board_watch.digests[project];
+                assert_eq!(digest.key, "MON");
+                assert!(digest.text.contains("- MON-001 Ship it (Finished)"));
+                // A real transition with an orchestrator queues an event until it is idle.
+                shell.board_watch.statuses.insert(card.id.clone(), "Planning");
+                locked(&shell.store)
+                    .and_then(|s| monocode_core::board::set_orchestrator_session(&s, project, lead))
+                    .unwrap();
+                shell.board_watch.pending.clear();
+                let before = shell.board_watch.statuses.clone();
+                assert_eq!(before.get(&card.id), Some(&"Planning"));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |shell, _, _| {
+                let store = locked(&shell.store).unwrap();
+                let saved = monocode_core::board::load_digest(&store, "/work/monocode");
+                assert!(saved.text.contains("MON-001 Ship it"), "digest saved for the runtime");
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn board_actions_add_list_and_guard_starts(cx: &mut TestAppContext) {
         let (window, _, _) = crate::shell::tests::window(cx);
         window
@@ -434,7 +563,7 @@ mod tests {
                         cx,
                     )
                     .unwrap();
-                assert_eq!(added["added"]["card"], "MON-1");
+                assert_eq!(added["added"]["card"], "MON-001");
                 assert_eq!(added["started"], false);
                 assert!(shell.board_action("board.add", &json!({}), project, cx).is_err());
                 let listed = shell.board_action("board.list", &json!({}), project, cx).unwrap();
@@ -443,10 +572,10 @@ mod tests {
                 let other = shell.board_action("board.list", &json!({}), "/elsewhere", cx).unwrap();
                 assert_eq!(other["cards"].as_array().unwrap().len(), 0);
                 let missing = shell
-                    .board_action("board.start", &json!({"card": "MON-9"}), project, cx)
+                    .board_action("board.start", &json!({"card": "MON-009"}), project, cx)
                     .unwrap_err();
-                assert!(missing.contains("No card MON-9"));
-                assert!(shell.board_snapshot(project, cx).contains("- MON-1 Split auth (Not started)"));
+                assert!(missing.contains("No task MON-009"));
+                assert!(shell.board_snapshot(project, cx).contains("- MON-001 Split auth (Not started)"));
             })
             .unwrap();
     }

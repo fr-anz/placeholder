@@ -460,7 +460,8 @@ impl Conversation {
     /// The prose of the agent's latest reply, after the last user message.
     pub(crate) fn latest_reply(&self, cx: &gpui::App) -> String {
         let rows = self.transcript.read(cx).source_rows();
-        match rows.iter().rposition(|row| row.role == "user") {
+        // After the latest prompt, the user's or an app note.
+        match rows.iter().rposition(|row| row.is_prompt()) {
             Some(start) => monocode_core::response::prose(&rows[start + 1..]),
             None => String::new(),
         }
