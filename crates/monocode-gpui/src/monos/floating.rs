@@ -490,7 +490,7 @@ impl Monos {
         projects: Vec<String>,
         cx: &mut Context<Self>,
     ) -> String {
-        let id = self.roster.create(projects).id.clone();
+        let id = self.new_mono(projects);
         self.save(cx);
         self.ensure_chat(&id, cx);
         self.changed(cx);

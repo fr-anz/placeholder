@@ -407,7 +407,7 @@ impl Monos {
                         json!({"cwd":project,"sessions":sessions.iter().map(|s|json!({"id":s.id,"sessionId":s.id,"title":s.title,"harness":s.provider,"model":metadata.get(&s.id).and_then(|m|m.model.clone()),"busy":views.iter().any(|v|v.id==s.id&&v.busy),"hasDraft":drafts.contains(&s.id),"archived":s.archived})).collect::<Vec<_>>()})
                     }else{
                         let session=if let Some(id)=input["sessionId"].as_str(){db.resolve_session_id(id)?}else{id(&input,"sessionId")?};
-                        if !sessions.iter().any(|s|s.id==session){return Err("Session is outside the assigned project".into());}
+                        if !sessions.iter().any(|s|s.id==session){return Err("Session is outside the user's projects".into());}
                         db.app_conversation(session,&input,views.iter().any(|v|v.id==session&&v.busy),db.draft_sessions()?.contains(&session))?
                     };
                     Ok((value,Effect::None))
@@ -436,7 +436,7 @@ impl Monos {
                 let Some(view) = view else {
                     self.finish_call(
                         call,
-                        Err("Session is outside the assigned project".into()),
+                        Err("Session is outside the user's projects".into()),
                         cx,
                     );
                     return;
@@ -617,7 +617,7 @@ impl Monos {
                     let Some(view) = view else {
                         self.finish_call(
                             call,
-                            Err("Session is outside assigned projects".into()),
+                            Err("Session is outside the user's projects".into()),
                             cx,
                         );
                         return;

@@ -159,7 +159,7 @@ impl Monos {
     /// A new Mono from the phone's drawer, with the roster's next mascot and
     /// colour and no projects yet, its chat ready to talk to.
     pub(crate) fn mobile_create(&mut self, cx: &mut Context<Self>) -> Result<Value, String> {
-        let id = self.roster.create(Vec::new()).id.clone();
+        let id = self.new_mono(Vec::new());
         self.save(cx);
         self.ensure_chat(&id, cx);
         cx.notify();
@@ -241,14 +241,8 @@ impl Monos {
                 next.normalized()
             };
         }
-        // Projects as the desktop's settings add and remove them.
-        if let Some(path) = params["addPath"].as_str() {
-            mono.projects.push(path.into());
-        }
-        if let Some(paths) = params["removePaths"].as_array() {
-            mono.projects
-                .retain(|p| !paths.iter().any(|r| r.as_str() == Some(p.as_str())));
-        }
+        // Monos work on every project, so the phone's addPath and
+        // removePaths are ignored.
         mono.normalize();
         self.configure_chat(id, cx);
         self.save(cx);

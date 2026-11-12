@@ -128,8 +128,10 @@ pub(crate) struct Monos {
     model_anchor: AnchorSlot,
     subsession_model_anchor: AnchorSlot,
     subsession_effort_anchor: AnchorSlot,
-    projects_anchor: AnchorSlot,
     access_anchor: AnchorSlot,
+    /// The app's local projects, which every Mono works on once the shell
+    /// has reported them.
+    projects: Option<Vec<String>>,
     menu: Option<(String, Entity<Menu>, Vec<Subscription>)>,
     menu_anchor: Anchor,
     documents: HashMap<String, Entity<crate::transcript::TranscriptView>>,
@@ -364,7 +366,7 @@ impl Monos {
             model_anchor: AnchorSlot::default(),
             subsession_model_anchor: AnchorSlot::default(),
             subsession_effort_anchor: AnchorSlot::default(),
-            projects_anchor: AnchorSlot::default(),
+            projects: None,
             access_anchor: AnchorSlot::default(),
             menu: None,
             menu_anchor: Anchor::Point(gpui::Point::default()),
@@ -896,6 +898,43 @@ impl Monos {
         self.save(cx);
         self.configure_chat(source, cx);
     }
+    /// Monos are global: each one works on every local project the app
+    /// lists, rather than on a list it keeps for itself.
+    pub(crate) fn set_projects(&mut self, projects: Vec<String>, cx: &mut Context<Self>) {
+        let projects: Vec<String> = projects
+            .into_iter()
+            .filter(|p| !monocode_core::files::remote::is_remote(std::path::Path::new(p)))
+            .collect();
+        self.projects = Some(projects.clone());
+        let changed: Vec<String> = self
+            .roster
+            .monos
+            .iter_mut()
+            .filter_map(|mono| {
+                let mut next = mono.clone();
+                next.projects = projects.clone();
+                next.normalize();
+                (next.projects != mono.projects).then(|| {
+                    mono.projects = next.projects;
+                    mono.id.clone()
+                })
+            })
+            .collect();
+        if changed.is_empty() {
+            return;
+        }
+        for id in &changed {
+            self.configure_chat(id, cx);
+        }
+        self.save(cx);
+        cx.notify();
+    }
+    /// Adds a Mono on the app's projects; `fallback` stands in only before
+    /// the shell has reported them.
+    pub(super) fn new_mono(&mut self, fallback: Vec<String>) -> String {
+        let projects = self.projects.clone().unwrap_or(fallback);
+        self.roster.create(projects).id.clone()
+    }
     fn configure_chat(&mut self, id: &str, cx: &mut Context<Self>) {
         self.refresh_work(id, cx);
         if let Some(mono) = self.roster.get(id) {
@@ -1163,7 +1202,7 @@ impl Monos {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let id = self.roster.create(projects).id.clone();
+        let id = self.new_mono(projects);
         self.save(cx);
         self.open(&id, window, cx);
         self.settings = Some(SettingsSection::General);
@@ -1207,8 +1246,8 @@ impl Monos {
     pub(crate) fn rail(&mut self, project: Option<String>, cx: &mut Context<Self>) -> AnyElement {
         self.rail_impl(project, false, false, cx)
     }
-    /// Original navigation lists every Mono, before the projects; the inset
-    /// layout continues to list only the current project's Monos.
+    /// Original navigation lists every Mono, before the projects. Monos are
+    /// global, so the inset layout lists every one under each project too.
     pub(crate) fn project_navigation_rail(
         &mut self,
         compact: bool,
@@ -1229,10 +1268,7 @@ impl Monos {
         let roster: Vec<_> = self
             .roster
             .monos
-            .iter()
-            .filter(|m| project.as_ref().is_none_or(|p| m.works_on(p)))
-            .cloned()
-            .collect();
+            .to_vec();
         self.rail_ids = roster.iter().map(|m| m.id.clone()).collect();
         for mono in &roster {
             self.rail_bounds.entry(mono.id.clone()).or_default();

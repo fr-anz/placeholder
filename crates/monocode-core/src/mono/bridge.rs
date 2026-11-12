@@ -41,7 +41,7 @@ sessions.read returns up to three prose exchanges and nextBefore for older turns
 notes.write requires body for a new note; existing notes accept title, body or tags independently.
 Artifacts, memory, soul, habits, cards and notifyOnComplete:true require a Mono.
 The CLI returns {ok,result,requestId}. Retry uncertain mutations with the same request ID and identical input.
-Assigned projects alone may be addressed. Credentials are provided in the environment; never print them.
+Only the user's open projects may be addressed. Credentials are provided in the environment; never print them.
 "#;
 #[derive(Serialize, Deserialize)]
 struct Wire {

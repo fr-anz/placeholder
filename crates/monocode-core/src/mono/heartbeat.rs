@@ -377,7 +377,7 @@ Do one round:
 2. Review your memory and the recent chat below for open commitments or follow-ups you promised.
 3. Scan what changed. Open at most 3 promising items with sessions.read, notes.read or the GitHub CLI before judging them; never load everything.
 
-The headlines below are only filtered to your assigned projects, not to your role. Your soul decides what kind of work is yours: skip anything outside it. For example, if you are not meant to review or work on pull requests, ignore PRs entirely. Most headlines will not concern you; that is expected.
+The headlines below are only filtered to the user's projects, not to your role. Your soul decides what kind of work is yours: skip anything outside it. For example, if you are not meant to review or work on pull requests, ignore PRs entirely. Most headlines will not concern you; that is expected.
 
 A heartbeat does not authorize new projects, code changes, starting sessions, sending messages, commenting, publishing or destructive actions. Propose those instead: write a short, specific message to the user and add a choices card with the replies they can pick. At most 2 proposals. Never invent work to fill the interval, and never repeat something you raised recently unless it changed. If nothing is worth raising, reply exactly NOTHING_TO_REPORT.";
 

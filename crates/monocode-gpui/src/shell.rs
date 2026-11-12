@@ -1294,6 +1294,7 @@ impl Shell {
                 }
             }));
         this.monos = Some(monos);
+        this.sync_mono_projects(cx);
         this.bind_notices(cx);
         this.init_app_bridge(cx);
         for summary in summaries {
@@ -4103,7 +4104,7 @@ impl Shell {
             history.update(cx, |h, cx| h.resume(cx));
         }
     }
-    fn persist(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn persist(&mut self, cx: &mut Context<Self>) {
         // A terminal pane closed with its tab or pane stops its shell.
         for pane in self.workspace.prune_terminal_panes() {
             self.terminal_pane_views.remove(&pane);
@@ -4118,7 +4119,23 @@ impl Shell {
         self.update_usage_provider(cx);
         self.sync_right_panel(cx);
         self.invalidate_chrome(cx);
+        self.sync_mono_projects(cx);
         self.save_state(cx);
+    }
+    /// Monos are global: they follow the app's open projects.
+    fn sync_mono_projects(&mut self, cx: &mut Context<Self>) {
+        let Some(monos) = self.monos.clone() else {
+            return;
+        };
+        let projects: Vec<String> = self
+            .workspace
+            .projects
+            .iter()
+            .filter(|p| !self.workspace.archived_projects.contains(p))
+            .cloned()
+            .collect();
+        // The shell may be mid-update of Monos when this runs.
+        cx.defer(move |cx| monos.update(cx, |m, cx| m.set_projects(projects, cx)));
     }
     fn save_window_state(&mut self, window: &Window, cx: &mut Context<Self>) {
         let bounds = window.inner_window_bounds();

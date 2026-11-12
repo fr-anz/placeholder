@@ -2553,3 +2553,50 @@ fn habits_and_documents_search_like_sessions(cx: &mut TestAppContext) {
     assert!(visual.debug_bounds("mono-document-plan").is_none());
     assert!(visual.debug_bounds("mono-document-summary").is_some());
 }
+
+#[gpui::test]
+fn monos_are_global_across_the_apps_projects(cx: &mut TestAppContext) {
+    let s = setup(cx);
+    cx.run_until_parked();
+    // A project opened anywhere in the app reaches every Mono, an archived
+    // one leaves them, and a remote one is never handed to a local agent.
+    s.window
+        .update(cx, |shell, _, cx| {
+            shell.workspace.add_project("/work/second");
+            shell.workspace.add_project("remote://box/repo");
+            shell.persist(cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let projects = s.manager.read_with(cx, |m, _| m.roster.get(&s.id).unwrap().projects.clone());
+    assert!(projects.contains(&s.project), "{projects:?}");
+    assert!(projects.contains(&"/work/second".to_string()), "{projects:?}");
+    assert!(!projects.iter().any(|p| p.starts_with("remote://")), "{projects:?}");
+
+    let handle: gpui::AnyWindowHandle = s.window.into();
+    let second = handle
+        .update(cx, |_, w, cx| {
+            s.manager.update(cx, |m, cx| {
+                m.create(Vec::new(), w, cx);
+                m.current().unwrap().id.clone()
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    s.manager.read_with(cx, |m, _| {
+        assert_eq!(m.roster.get(&second).unwrap().projects, projects);
+    });
+
+    s.window
+        .update(cx, |shell, _, cx| {
+            shell.workspace.archived_projects.push("/work/second".into());
+            shell.persist(cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    s.manager.read_with(cx, |m, _| {
+        for id in [&s.id, &second] {
+            assert!(!m.roster.get(id).unwrap().projects.contains(&"/work/second".to_string()));
+        }
+    });
+}

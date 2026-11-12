@@ -1883,7 +1883,6 @@ impl Monos {
             f.set_placeholder(mono.label(), cx);
         });
         let look = mono.id.clone();
-        let add = mono.id.clone();
         let reset = mono.id.clone();
         let chat = self.chat();
         let model = chat
@@ -1969,33 +1968,6 @@ impl Monos {
                         .child(mode.label()).child(icon("chevron-down",12.))
                         .on_click(cx.listener(|this,_,w,cx|this.open_access_picker(w,cx))).into_any_element())
                     .border_t_1().border_color(content(0.04))))
-            .child(heading("Projects",Some("It can see every session, note and folder in these.")))
-            .child(card()
-                .children(mono.projects.iter().enumerate().map(|(ix,project)| {
-                    let remove=project.clone();
-                    let appearance=self.owner.upgrade().and_then(|o|o.read(cx).workspace.project_appearance.get(project).cloned()).unwrap_or_default();
-                    let label=appearance.label(project);
-                    let pretty=std::env::var("HOME").ok().and_then(|home|project.strip_prefix(&home).map(|rest|format!("~{rest}"))).unwrap_or_else(||project.clone());
-                    let group:SharedString=format!("mono-project-{ix}").into();
-                    div().id(("mono-project",ix)).group(group.clone()).min_h(px(48.)).flex().items_center().gap_3().px_3().py_2()
-                        .when(ix>0,|d|d.border_t_1().border_color(content(0.04)))
-                        .child(div().size(px(32.)).flex_shrink_0().rounded_lg().bg(content(0.05)).flex().items_center().justify_center()
-                            .child(crate::project_settings::project_icon(&appearance,project,16.)))
-                        .child(div().flex_1().min_w_0()
-                            .child(div().text_size(px(13.)).line_height(px(20.)).text_color(content(0.9)).truncate().child(label))
-                            .child(div().text_size(px(11.)).line_height(px(16.)).text_color(content(0.4)).truncate().child(pretty)))
-                        .child(icon_button("mono-remove-project","Remove project","close").opacity(0.).group_hover(group,|s|s.opacity(1.))
-                            .on_click(cx.listener(move |this,_,_,cx| { if let Some(id)=this.active.clone() {
-                                if let Some(m)=this.roster.get_mut(&id) {m.projects.retain(|p|p!=&remove);}
-                                this.configure_chat(&id,cx);this.save(cx);
-                            }})))
-                }))
-                .child(div().id("mono-add-project").role(Role::Button).aria_label("Add project").h(px(44.)).px_3().flex().items_center().gap_3()
-                    .text_size(px(13.)).text_color(content(0.55)).hover(|s|s.bg(content(0.04)).text_color(content(1.)))
-                    .when(!mono.projects.is_empty(),|d|d.border_t_1().border_color(content(0.04)))
-                    .child(self.projects_anchor.probe())
-                    .child(div().size(px(32.)).rounded_lg().border_1().border_color(content(0.15)).flex().items_center().justify_center().child(icon("plus",14.)))
-                    .child("Add project").on_click(cx.listener(move |this,_,w,cx|this.pick_project(&add,w,cx)))))
             .child(heading("Sessions it starts",None))
             .child(card()
                 .child(switch_setting("Show sessions in sidebar","Sessions it starts appear in your project sidebar. Hidden ones stay saved and open from its overview.",false,
@@ -2499,73 +2471,6 @@ impl Monos {
             _events: vec![picked],
         });
         cx.notify();
-    }
-    fn pick_project(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let projects = self
-            .owner
-            .upgrade()
-            .map(|owner| owner.read(cx).workspace.projects.clone())
-            .unwrap_or_default();
-        let mono = id.to_string();
-        let paths = projects.clone();
-        let mut items: Vec<MenuItem> = projects
-            .into_iter()
-            .enumerate()
-            .map(|(ix, path)| MenuAction::new(format!("project:{ix}"), path).into())
-            .collect();
-        items.push(MenuItem::Separator);
-        items.push(MenuAction::new("browse", "Open project…").into());
-        let menu = cx.new(|cx| Menu::new("Add project", items, window, cx).width(300.));
-        let picked = cx.subscribe(&menu, move |this, _, event: &MenuEvent, cx| {
-            this.picker = None;
-            if let MenuEvent::Picked(action, _) = event {
-                if action == "browse" {
-                    this.browse_project(&mono, cx);
-                } else if let Some(path) = action
-                    .strip_prefix("project:")
-                    .and_then(|n| n.parse::<usize>().ok())
-                    .and_then(|ix| paths.get(ix))
-                {
-                    this.add_project(&mono, path.clone(), cx);
-                }
-            }
-            cx.notify();
-        });
-        self.picker = Some(OpenPicker {
-            menu,
-            anchor: Anchor::Slot(self.projects_anchor.clone()),
-            width: 300.,
-            align: crate::popover::Align::Start,
-            _events: vec![picked],
-        });
-        cx.notify();
-    }
-    fn add_project(&mut self, id: &str, path: String, cx: &mut Context<Self>) {
-        if let Some(m) = self.roster.get_mut(id) {
-            m.projects.push(path);
-            m.normalize();
-        }
-        self.configure_chat(id, cx);
-        self.save(cx);
-    }
-    fn browse_project(&mut self, id: &str, cx: &mut Context<Self>) {
-        let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Add project".into()),
-        });
-        let id = id.to_string();
-        cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = picked.await
-                && let Some(path) = paths.into_iter().next()
-            {
-                let _ = this.update(cx, |this, cx| {
-                    this.add_project(&id, path.to_string_lossy().into(), cx)
-                });
-            }
-        })
-        .detach();
     }
     fn open_background(&mut self, id: &str, window: &Window, cx: &mut Context<Self>) {
         let Some(mono) = self.roster.get(id).cloned() else {
