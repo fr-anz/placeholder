@@ -19,6 +19,7 @@ pub(crate) use appearance::{ACCENTS, swatch};
 pub(super) use connections::ConnectionsState;
 pub(crate) use keybindings::command_shortcut;
 pub(super) use mobile::MobileState;
+pub(super) use roles::AgentsState;
 
 use super::{Section, SettingsView};
 use gpui::{AnyElement, Context, Window};

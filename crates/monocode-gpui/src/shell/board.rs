@@ -197,6 +197,42 @@ impl Shell {
             })
     }
 
+    /// What a new orchestrator chat (a card's coordinator or the board's
+    /// orchestrator) starts on: the Orchestrator agent where set, else the
+    /// defaults for a new chat.
+    fn orchestrator_start(
+        &self,
+        project: &str,
+        cx: &App,
+    ) -> (Kind, monocode_core::agent::Settings) {
+        let agent = locked(&self.store)
+            .map(|store| monocode_core::roles::load_orchestrator(&store))
+            .unwrap_or_default();
+        let choice = self.new_chat_choice(project);
+        let kind = agent.provider.as_deref().and_then(Kind::parse).unwrap_or(choice.kind);
+        let model = if agent.provider.is_some() { agent.model.clone() } else { choice.model };
+        let settings = monocode_core::agent::Settings {
+            model,
+            effort: agent
+                .effort
+                .clone()
+                .or_else(|| crate::conversation::preferred_effort(kind.id(), cx)),
+            access: agent.access.unwrap_or_else(|| {
+                self.workspace
+                    .preferences
+                    .default_access
+                    .as_deref()
+                    .map(monocode_core::agent::AccessMode::from_id)
+                    .unwrap_or_default()
+            }),
+            account: crate::accounts::get(cx)
+                .map(|accounts| accounts.read(cx).selected(kind, project))
+                .unwrap_or_default(),
+            ..Default::default()
+        };
+        (kind, settings)
+    }
+
     /// The project's orchestrator chat, created (empty) the first time it is
     /// needed: by a board message or by its model menu.
     fn ensure_board_orchestrator(
@@ -214,26 +250,10 @@ impl Shell {
             });
             return Some(view);
         }
-        let choice = self.new_chat_choice(project);
-        let kind = choice.kind;
-        let settings = monocode_core::agent::Settings {
-            model: choice.model,
-            effort: crate::conversation::preferred_effort(kind.id(), cx),
-            access: self
-                .workspace
-                .preferences
-                .default_access
-                .as_deref()
-                .map(monocode_core::agent::AccessMode::from_id)
-                .unwrap_or_default(),
-            account: crate::accounts::get(cx)
-                .map(|accounts| accounts.read(cx).selected(kind, project))
-                .unwrap_or_default(),
-            operator: true,
-            operator_enabled: true,
-            board_orchestrator: Some(project.to_owned()),
-            ..Default::default()
-        };
+        let (kind, mut settings) = self.orchestrator_start(project, cx);
+        settings.operator = true;
+        settings.operator_enabled = true;
+        settings.board_orchestrator = Some(project.to_owned());
         let title = format!("Orchestrator · {}", self.project_label(project));
         let created = locked(&self.store).and_then(|store| {
             let mut summary = store.create(kind.id(), project)?;
@@ -334,24 +354,8 @@ impl Shell {
             &monocode_core::board::prefix(&self.project_label(&cwd)),
             card.number,
         );
-        let choice = self.new_chat_choice(&cwd);
-        let kind = choice.kind;
-        let settings = monocode_core::agent::Settings {
-            model: choice.model,
-            effort: crate::conversation::preferred_effort(kind.id(), cx),
-            access: self
-                .workspace
-                .preferences
-                .default_access
-                .as_deref()
-                .map(monocode_core::agent::AccessMode::from_id)
-                .unwrap_or_default(),
-            account: crate::accounts::get(cx)
-                .map(|accounts| accounts.read(cx).selected(kind, &cwd))
-                .unwrap_or_default(),
-            orchestrator: true,
-            ..Default::default()
-        };
+        let (kind, mut settings) = self.orchestrator_start(&cwd, cx);
+        settings.orchestrator = true;
         let prompt = monocode_core::board::coordinator_brief(&key, &card);
         let visible = monocode_core::board::coordinator_message(&key, &card);
         let title = format!("{key} · {}", card.title);

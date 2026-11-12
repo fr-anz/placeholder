@@ -108,6 +108,9 @@ impl Shell {
             roles: locked(&self.store)
                 .map(|store| monocode_core::roles::load(&store))
                 .unwrap_or_else(|_| monocode_core::roles::defaults()),
+            orchestrator: locked(&self.store)
+                .map(|store| monocode_core::roles::load_orchestrator(&store))
+                .unwrap_or_default(),
             catalogs,
             classic: self.workspace.classic_layout,
             new_layout_boxy: self.workspace.new_layout_boxy,
@@ -254,6 +257,14 @@ impl Shell {
                         .and_then(|store| monocode_core::roles::save(&store, &roles));
                     if let Some(settings) = &this.settings {
                         settings.update(cx, |s, cx| s.management_finished(result, cx));
+                    }
+                    this.sync_settings(cx);
+                }
+                SettingsEvent::SaveOrchestrator(role) => {
+                    let result = locked(&this.store)
+                        .and_then(|store| monocode_core::roles::save_orchestrator(&store, role));
+                    if let Err(error) = result {
+                        this.error = Some(error);
                     }
                     this.sync_settings(cx);
                 }

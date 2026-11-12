@@ -40,7 +40,7 @@ pub fn defaults() -> Vec<Role> {
         },
         Role {
             id: "implement".into(),
-            label: "Implementer".into(),
+            label: "Worker".into(),
             description: "Makes the change within its assigned files.".into(),
             instructions: "You are an implementer. Make the change the task describes, keep it minimal, and run the relevant tests. Do not commit. Finish with a summary of what changed and how you verified it.".into(),
             ..Role::default()
@@ -54,6 +54,37 @@ pub fn defaults() -> Vec<Role> {
             ..Role::default()
         },
     ]
+}
+
+/// `native_settings` key of the orchestrator agent: what card coordinators
+/// and new board orchestrators start on.
+pub const ORCHESTRATOR_KEY: &str = "fork.orchestrator_agent";
+
+/// The orchestrator agent; `None` fields fall back to the new-chat defaults.
+pub fn load_orchestrator(store: &crate::store::Store) -> Role {
+    store
+        .setting(ORCHESTRATOR_KEY)
+        .ok()
+        .flatten()
+        .and_then(|json| serde_json::from_str::<Role>(&json).ok())
+        .filter(|role| role.provider.as_deref().is_none_or(|p| Kind::parse(p).is_some()))
+        .unwrap_or_else(|| Role {
+            id: "orchestrator".into(),
+            label: "Orchestrator".into(),
+            ..Role::default()
+        })
+}
+
+pub fn save_orchestrator(store: &crate::store::Store, role: &Role) -> Result<(), String> {
+    if let Some(provider) = &role.provider {
+        if Kind::parse(provider).is_none() {
+            return Err(format!("Unknown provider \"{provider}\"."));
+        }
+    }
+    store.save_setting(
+        ORCHESTRATOR_KEY,
+        &serde_json::to_string(role).map_err(|e| e.to_string())?,
+    )
 }
 
 pub fn valid_id(id: &str) -> bool {
@@ -273,6 +304,24 @@ mod tests {
         assert_eq!(load(&store), roles);
         store.save_setting(SETTING_KEY, "not json").unwrap();
         assert_eq!(load(&store), defaults());
+    }
+
+    #[test]
+    fn the_orchestrator_agent_round_trips_and_defaults_to_new_chat_choices() {
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        let fresh = load_orchestrator(&store);
+        assert_eq!((fresh.id.as_str(), fresh.provider.as_deref()), ("orchestrator", None));
+        let picked = Role {
+            provider: Some("claude".into()),
+            model: Some("claude-opus-5-5".into()),
+            effort: Some("high".into()),
+            access: Some(AccessMode::Auto),
+            ..fresh
+        };
+        save_orchestrator(&store, &picked).unwrap();
+        assert_eq!(load_orchestrator(&store), picked);
+        let bad = Role { provider: Some("nope".into()), ..picked };
+        assert!(save_orchestrator(&store, &bad).is_err());
     }
 
     #[test]

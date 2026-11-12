@@ -92,7 +92,7 @@ impl Section {
             Section::Mcp => "MCP",
             Section::Skills => "Skills",
             Section::Monos => "Monos",
-            Section::Roles => "Worker roles",
+            Section::Roles => "Agents",
             Section::Inbox => "Inbox",
             Section::Archive => "Archive",
             Section::Worktrees => "Worktrees",
@@ -121,9 +121,7 @@ impl Section {
                 "Discover and manage file skills from project, personal, and harness folders."
             }
             Section::Monos => "The resident agent beside your tabs, and which projects have one.",
-            Section::Roles => {
-                "Presets orchestration assignments run on: each role's provider, model, access and instructions."
-            }
+            Section::Roles => "",
             Section::Inbox => {
                 "Manage Inbox services and notification preferences for each project."
             }
@@ -151,7 +149,7 @@ impl Section {
             Section::Skills => "skill instructions prompt",
             Section::Monos => "mono resident agent mascot claim project title bar",
             Section::Roles => {
-                "worker role scout implementer reviewer orchestration model provider subscription"
+                "agents worker role scout implementer reviewer orchestrator orchestration model provider subscription effort thinking reasoning approval"
             }
             Section::Inbox => {
                 "github gitlab linear jira atlassian azure devops connect token integration"

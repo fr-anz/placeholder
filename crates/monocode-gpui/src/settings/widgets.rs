@@ -38,15 +38,17 @@ pub(super) fn page_header(title: &'static str, description: &'static str) -> Div
                 .text_color(content(1.))
                 .child(title),
         )
-        .child(
-            div()
-                .mt(px(6.))
-                .max_w(px(576.))
-                .text_size(px(13.))
-                .line_height(px(21.125))
-                .text_color(content(0.45))
-                .child(description),
-        )
+        .when(!description.is_empty(), |d| {
+            d.child(
+                div()
+                    .mt(px(6.))
+                    .max_w(px(576.))
+                    .text_size(px(13.))
+                    .line_height(px(21.125))
+                    .text_color(content(0.45))
+                    .child(description),
+            )
+        })
 }
 
 /// A muted line inside a group card: an empty state or a hint.

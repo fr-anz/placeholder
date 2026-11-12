@@ -49,6 +49,8 @@ pub(crate) struct SettingsContext {
     pub monos: Vec<MonoSetting>,
     /// Worker roles orchestration assignments can name.
     pub roles: Vec<monocode_core::roles::Role>,
+    /// What card coordinators and new board orchestrators start on.
+    pub orchestrator: monocode_core::roles::Role,
     pub classic: bool,
     pub new_layout_boxy: bool,
     /// The selected project, or empty outside one.
@@ -77,6 +79,7 @@ impl PartialEq for SettingsContext {
         }
         self.monos == other.monos
             && self.roles == other.roles
+            && self.orchestrator == other.orchestrator
             && self.classic == other.classic
             && self.new_layout_boxy == other.new_layout_boxy
             && self.cwd == other.cwd
@@ -128,6 +131,7 @@ pub(crate) enum SettingsEvent {
     MonoSidebar(String, bool, bool),
     /// Replace the worker roles; an empty list restores the defaults.
     SaveRoles(Vec<monocode_core::roles::Role>),
+    SaveOrchestrator(monocode_core::roles::Role),
     /// Read mobile access again: the router and pairing change on their own.
     MobileRefresh,
     MobileConfigure {
@@ -206,6 +210,8 @@ pub(crate) struct SettingsView {
     pub(crate) section: Section,
     prefs: Preferences,
     notification_state: notification_preferences::State,
+    /// Settings → Agents: the open model menu and each agent's anchor.
+    agents: pages::AgentsState,
     ctx: SettingsContext,
     focus: FocusHandle,
     scroll: ScrollHandle,
@@ -360,6 +366,7 @@ impl SettingsView {
             section,
             prefs,
             notification_state: notification_preferences::State::default(),
+            agents: Default::default(),
             ctx,
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
@@ -1145,6 +1152,7 @@ impl Render for SettingsView {
             })
             .children(self.management_overlay(window, cx))
             .children(self.notification_overlay(cx))
+            .children(self.agents_overlay(cx))
     }
 }
 

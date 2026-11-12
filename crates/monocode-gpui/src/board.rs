@@ -605,7 +605,7 @@ impl Board {
                 .gap_2()
                 .text_size(px(11.))
                 .text_color(content(0.5))
-                .child(div().child("Workers"))
+                .child(div().child("Agents"))
                 .map(|d| {
                     d.child(
                             div().flex().gap(px(2.)).children(
