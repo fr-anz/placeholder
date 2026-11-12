@@ -4,6 +4,7 @@ use super::app_views::AppView;
 use super::*;
 use crate::board;
 use monocode_core::board::{Card, Digest, Lane, LeadState};
+use monocode_core::provider::Kind;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -30,6 +31,7 @@ impl Shell {
                     board::Event::Start(card) => this.start_board_card(card.clone(), cx),
                     board::Event::Ask(message) => this.message_board_orchestrator(message.clone(), cx),
                     board::Event::Changed => this.board_changed(cx),
+                    board::Event::OpenModelMenu => this.open_board_model_menu(window, cx),
                 },
             ));
             self.board = Some(view);
@@ -41,6 +43,12 @@ impl Shell {
                 view.set_context(cwd, label, cx);
                 view.refresh(cx);
             });
+        }
+        // Load the orchestrator's chat so the board can show its latest reply.
+        if let Some(id) = self.board_orchestrator(&self.workspace.project.clone())
+            && let Some(view) = self.ensure_session(id, cx)
+        {
+            view.update(cx, |view, cx| view.load(cx));
         }
         self.sync_board(cx);
         self.show_app_view(AppView::Board, window, cx);
@@ -178,6 +186,92 @@ impl Shell {
         }
     }
 
+    /// The project's orchestrator session, if it still exists.
+    fn board_orchestrator(&self, project: &str) -> Option<i64> {
+        locked(&self.store)
+            .ok()
+            .and_then(|store| monocode_core::board::orchestrator_session(&store, project))
+            .filter(|id| {
+                self.session_summaries.get(id).is_some_and(|s| !s.archived)
+                    || self.sessions.contains_key(id)
+            })
+    }
+
+    /// The project's orchestrator chat, created (empty) the first time it is
+    /// needed: by a board message or by its model menu.
+    fn ensure_board_orchestrator(
+        &mut self,
+        project: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<crate::conversation::Conversation>> {
+        if project.is_empty() {
+            return None;
+        }
+        if let Some(id) = self.board_orchestrator(project) {
+            let view = self.ensure_session(id, cx)?;
+            view.update(cx, |view, _| {
+                view.settings.board_orchestrator = Some(project.to_owned())
+            });
+            return Some(view);
+        }
+        let choice = self.new_chat_choice(project);
+        let kind = choice.kind;
+        let settings = monocode_core::agent::Settings {
+            model: choice.model,
+            effort: crate::conversation::preferred_effort(kind.id(), cx),
+            access: self
+                .workspace
+                .preferences
+                .default_access
+                .as_deref()
+                .map(monocode_core::agent::AccessMode::from_id)
+                .unwrap_or_default(),
+            account: crate::accounts::get(cx)
+                .map(|accounts| accounts.read(cx).selected(kind, project))
+                .unwrap_or_default(),
+            operator: true,
+            operator_enabled: true,
+            board_orchestrator: Some(project.to_owned()),
+            ..Default::default()
+        };
+        let title = format!("Orchestrator · {}", self.project_label(project));
+        let created = locked(&self.store).and_then(|store| {
+            let mut summary = store.create(kind.id(), project)?;
+            summary.title = title;
+            store.title(summary.id, &summary.title)?;
+            store.save_agent_settings(summary.id, &settings)?;
+            monocode_core::board::set_orchestrator_session(&store, project, summary.id)?;
+            Ok(summary)
+        });
+        let summary = match created {
+            Ok(summary) => summary,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return None;
+            }
+        };
+        let id = summary.id;
+        self.add(summary, cx);
+        let view = self.sessions.get(&id)?.clone();
+        view.update(cx, |view, cx| view.install_transfer(settings, None, cx));
+        self.persist(cx);
+        Some(view)
+    }
+
+    /// The composer's own "Model and settings" menu, over the board's chip.
+    fn open_board_model_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let project = self.workspace.project.clone();
+        let Some(view) = self.ensure_board_orchestrator(&project, cx) else {
+            return;
+        };
+        let (menu, events) = view.update(cx, |view, cx| view.model_settings_menu(window, cx));
+        if let Some(board) = &self.board {
+            board.update(cx, |board, cx| board.show_menu(menu, events, cx));
+        }
+        self.sync_board(cx);
+    }
+
     /// Pushes the started cards' coordinator states to an open board.
     pub(super) fn sync_board(&mut self, cx: &mut Context<Self>) {
         let Some(view) = self.board.clone() else {
@@ -206,9 +300,29 @@ impl Shell {
                     .map(|v| v.read(cx).latest_reply(cx))
                     .unwrap_or_default(),
             });
+        // The chip reads the orchestrator's composer, or the new-chat default.
+        let (kind, model, effort) = match orchestrator
+            .as_ref()
+            .and_then(|o| self.sessions.get(&o.session))
+        {
+            Some(chat) => {
+                let chat = chat.read(cx);
+                let (model, effort) = chat.model_chip();
+                (Kind::from_id(&chat.summary.provider), model, effort)
+            }
+            None => {
+                let choice = self.new_chat_choice(&self.workspace.project);
+                (
+                    choice.kind,
+                    crate::pickers::cached_model_name(choice.kind, choice.model.as_deref()),
+                    None,
+                )
+            }
+        };
         view.update(cx, |view, cx| {
             view.set_states(states, infos, cx);
             view.set_orchestrator(orchestrator, cx);
+            view.set_chip(kind, model, effort, cx);
         });
     }
 
@@ -387,78 +501,10 @@ impl Shell {
         }
         // Make sure the digest it reads is current.
         self.board_changed(cx);
-        let label = self.project_label(&cwd);
-        let existing = locked(&self.store)
-            .ok()
-            .and_then(|store| monocode_core::board::orchestrator_session(&store, &cwd))
-            .filter(|id| {
-                self.session_summaries
-                    .get(id)
-                    .is_some_and(|s| !s.archived)
-                    || self.sessions.contains_key(id)
-            });
-        if let Some(id) = existing
-            && let Some(view) = self.ensure_session(id, cx)
-        {
-            view.update(cx, |view, cx| {
-                view.settings.board_orchestrator = Some(cwd.clone());
-                view.send_text(message, cx);
-            });
-            self.sync_board(cx);
-            return;
+        if let Some(view) = self.ensure_board_orchestrator(&cwd, cx) {
+            view.update(cx, |view, cx| view.send_text(message, cx));
         }
-        let choice = self.new_chat_choice(&cwd);
-        let kind = choice.kind;
-        let settings = monocode_core::agent::Settings {
-            model: choice.model,
-            effort: crate::conversation::preferred_effort(kind.id(), cx),
-            access: self
-                .workspace
-                .preferences
-                .default_access
-                .as_deref()
-                .map(monocode_core::agent::AccessMode::from_id)
-                .unwrap_or_default(),
-            account: crate::accounts::get(cx)
-                .map(|accounts| accounts.read(cx).selected(kind, &cwd))
-                .unwrap_or_default(),
-            operator: true,
-            operator_enabled: true,
-            board_orchestrator: Some(cwd.clone()),
-            ..Default::default()
-        };
-        let title = format!("Orchestrator · {label}");
-        let store = self.store.clone();
-        let project = cwd.clone();
-        let work = cx.background_executor().spawn(async move {
-            let store = locked(&store)?;
-            let mut summary = store.create(kind.id(), &cwd)?;
-            summary.title = title;
-            store.title(summary.id, &summary.title)?;
-            store.save_agent_settings(summary.id, &settings)?;
-            monocode_core::board::set_orchestrator_session(&store, &project, summary.id)?;
-            Ok::<_, String>((summary, settings))
-        });
-        cx.spawn(async move |this, cx| {
-            let result = work.await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok((summary, settings)) => {
-                    let id = summary.id;
-                    this.add(summary, cx);
-                    this.sessions[&id].update(cx, |view, cx| {
-                        view.install_transfer(settings, None, cx);
-                        view.send_text(message, cx);
-                    });
-                    this.sync_board(cx);
-                    this.persist(cx);
-                }
-                Err(error) => {
-                    this.error = Some(error);
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        self.sync_board(cx);
     }
 }
 

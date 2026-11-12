@@ -3,9 +3,11 @@
 //! which opens an orchestrator session that plans role-assigned workers.
 use crate::{
     input::{self, Input},
+    popover::{Anchor, AnchorSlot, Menu, MenuEvent, Side, menu_popover},
     runtime::{Database, locked},
     theme::*,
 };
+use monocode_core::provider::Kind;
 use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla,
     Role, SharedString, Stateful, Subscription, Window, div, prelude::*, px,
@@ -22,6 +24,8 @@ pub(crate) enum Event {
     Ask(String),
     /// Cards were added, deleted, archived or restored.
     Changed,
+    /// Open the orchestrator's model and settings menu over the chip.
+    OpenModelMenu,
 }
 
 /// What a started card's coordinator runs on and how its workers are doing.
@@ -57,6 +61,12 @@ pub(crate) struct Board {
     states: HashMap<i64, LeadState>,
     infos: HashMap<i64, LeadInfo>,
     orchestrator: Option<OrchestratorStatus>,
+    /// What the orchestrator runs on, or will run on once created.
+    /// The orchestrator's provider, model label and reasoning label.
+    chip: (Kind, SharedString, Option<SharedString>),
+    model_anchor: AnchorSlot,
+    menu: Option<Entity<Menu>>,
+    _menu_events: Vec<Subscription>,
     tab: Tab,
     composing: bool,
     title: Entity<Input>,
@@ -193,7 +203,7 @@ impl Board {
         let ask = cx.new(|cx| {
             Input::field(
                 "Message the board orchestrator",
-                "Message the orchestrator to plan or start tasks…",
+                "Ask the orchestrator to plan or start tasks…",
                 content(0.35),
                 cx,
             )
@@ -212,6 +222,10 @@ impl Board {
             states: HashMap::new(),
             infos: HashMap::new(),
             orchestrator: None,
+            chip: (Kind::Claude, SharedString::default(), None),
+            model_anchor: AnchorSlot::default(),
+            menu: None,
+            _menu_events: Vec::new(),
             tab: Tab::Active,
             composing: false,
             title,
@@ -252,6 +266,45 @@ impl Board {
             self.orchestrator = status;
             cx.notify();
         }
+    }
+
+    pub(crate) fn set_chip(
+        &mut self,
+        kind: Kind,
+        model: SharedString,
+        effort: Option<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.chip != (kind, model.clone(), effort.clone()) {
+            self.chip = (kind, model, effort);
+            cx.notify();
+        }
+    }
+
+    /// Shows the orchestrator's menu; `events` apply its picks to the chat.
+    pub(crate) fn show_menu(
+        &mut self,
+        menu: Entity<Menu>,
+        mut events: Vec<Subscription>,
+        cx: &mut Context<Self>,
+    ) {
+        events.push(cx.subscribe(&menu, |this, menu, event: &MenuEvent, cx| {
+            let keep = match event {
+                // A toggle such as Fast stays open, as in the composer.
+                MenuEvent::Picked(id, _) => menu.read(cx).toggle_state(id).is_some(),
+                MenuEvent::Dismissed => false,
+            };
+            // The chip follows the pick right away.
+            cx.emit(Event::Changed);
+            if !keep {
+                this.menu = None;
+                this._menu_events.clear();
+                cx.notify();
+            }
+        }));
+        self.menu = Some(menu);
+        self._menu_events = events;
+        cx.notify();
     }
 
     /// Leads of this project's started cards, for the shell to report on.
@@ -536,7 +589,11 @@ impl Board {
             .child(icon(status_icon, 13.).text_color(status_color))
             .child(div().truncate().child(status));
 
-        let meta = info.map(|info| {
+        let card_icon = match &info {
+            Some(info) => provider_icon(&info.provider, 13.).into_any_element(),
+            None => icon("dashboard", 12.).into_any_element(),
+        };
+        let meta = info.filter(|info| !info.workers.is_empty()).map(|info| {
             let done = info.workers.iter().filter(|s| *s == "completed").count();
             div()
                 .mt_2()
@@ -545,16 +602,9 @@ impl Board {
                 .gap_2()
                 .text_size(px(11.))
                 .text_color(content(0.5))
-                .child(provider_icon(&info.provider, 13.))
-                .child(
-                    div()
-                        .truncate()
-                        .font_family(crate::fonts::mono())
-                        .child(info.model.clone().unwrap_or_else(|| info.provider.clone())),
-                )
-                .when(!info.workers.is_empty(), |d| {
-                    d.child(div().text_color(content(0.3)).child("•"))
-                        .child(
+                .child(div().child("Workers"))
+                .map(|d| {
+                    d.child(
                             div().flex().gap(px(2.)).children(
                                 info.workers
                                     .iter()
@@ -597,7 +647,7 @@ impl Board {
                             .gap_1p5()
                             .text_size(px(11.))
                             .text_color(content(0.45))
-                            .child(icon("dashboard", 12.))
+                            .child(card_icon)
                             .child(div().font_family(crate::fonts::mono()).child(key))
                             .child(div().flex_1())
                             .child(ago(card.created_at)),
@@ -781,12 +831,14 @@ impl Board {
             .into_any_element()
     }
 
-    fn reply_strip(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// The orchestrator's latest reply, above the field; the whole section
+    /// opens its chat.
+    fn reply(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let status = self.orchestrator.clone()?;
         // A short plain-text excerpt: replies are Markdown.
         let collapsed = plain_excerpt(&status.reply);
-        let mut reply: String = collapsed.chars().take(280).collect();
-        if collapsed.chars().count() > 280 {
+        let mut reply: String = collapsed.chars().take(320).collect();
+        if collapsed.chars().count() > 320 {
             reply.push('…');
         }
         if reply.is_empty() && !status.busy {
@@ -795,26 +847,30 @@ impl Board {
         let session = status.session;
         Some(
             div()
-                .w_full()
-                .max_w(px(720.))
-                .px_3()
-                .py_2p5()
+                .id("board-orchestrator-reply")
+                .role(Role::Button)
+                .aria_label("Open the orchestrator chat")
+                .cursor_pointer()
+                .px_4()
+                .pt_3()
+                .pb(px(10.))
                 .flex()
-                .gap_2p5()
-                .rounded_xl()
-                .border_1()
-                .border_color(content(0.08))
-                .bg(pane_fill())
+                .gap_3()
+                .border_b_1()
+                .border_color(content(0.07))
+                .hover(|s| s.bg(content(0.035)))
+                .on_click(cx.listener(move |_, _, _, cx| cx.emit(Event::OpenSession(session))))
                 .child(
                     div()
-                        .size(px(22.))
+                        .mt(px(1.))
+                        .size(px(24.))
                         .flex_shrink_0()
                         .flex()
                         .items_center()
                         .justify_center()
-                        .rounded_md()
-                        .bg(content(0.08))
-                        .child(icon("git-merge", 13.)),
+                        .rounded_full()
+                        .bg(accent_color().opacity(0.16))
+                        .child(icon("git-merge", 13.).text_color(accent_color())),
                 )
                 .child(
                     div()
@@ -822,7 +878,7 @@ impl Board {
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .gap_0p5()
+                        .gap_1()
                         .child(
                             div()
                                 .flex()
@@ -840,84 +896,120 @@ impl Board {
                                             .child(icon("loader", 12.).text_color(amber(1.)))
                                             .child("Working…"),
                                     )
-                                })
-                                .child(div().flex_1())
-                                .child(
-                                    div()
-                                        .id("board-open-orchestrator")
-                                        .role(Role::Button)
-                                        .aria_label("Open the orchestrator chat")
-                                        .cursor_pointer()
-                                        .text_color(content(0.5))
-                                        .hover(|s| s.text_color(content(1.)))
-                                        .child("Open chat")
-                                        .on_click(cx.listener(move |_, _, _, cx| {
-                                            cx.emit(Event::OpenSession(session))
-                                        })),
-                                ),
+                                }),
                         )
                         .when(!reply.is_empty(), |d| {
                             d.child(
                                 div()
-                                    .text_size(px(12.))
-                                    .line_height(px(17.))
-                                    .text_color(content(0.7))
-                                    .max_h(px(51.))
+                                    .text_size(px(13.))
+                                    .line_height(px(19.))
+                                    .text_color(content(0.78))
+                                    .max_h(px(57.))
                                     .overflow_hidden()
                                     .child(reply),
                             )
                         }),
                 )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .pt(px(4.))
+                        .child(icon("chevron-right", 14.).text_color(content(0.3))),
+                )
                 .into_any_element(),
         )
     }
 
-    fn message_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// One panel: the latest reply, the field, then the model and send.
+    fn composer(&self, cx: &mut Context<Self>) -> AnyElement {
         let can_ask = !self.ask.read(cx).content.trim().is_empty() && !self.cwd.is_empty();
+        let (kind, model_label, effort) = self.chip.clone();
+        let picking = self.menu.is_some();
+        let model_chip = div()
+            .id("board-model")
+            .role(Role::Button)
+            .aria_label("Orchestrator model")
+            .aria_expanded(picking)
+            .cursor_pointer()
+            .relative()
+            .h(px(28.))
+            .px_2()
+            .flex()
+            .items_center()
+            .gap_1p5()
+            .rounded_lg()
+            .text_size(px(12.))
+            .text_color(content(0.75))
+            .when(picking, |d| d.bg(content(0.08)))
+            .hover(|s| s.bg(content(0.08)).text_color(content(1.)))
+            .child(self.model_anchor.probe())
+            .child(provider_icon(kind.id(), 14.))
+            .child(div().max_w(px(220.)).truncate().child(model_label))
+            .when_some(effort, |d, effort| d.child(div().text_color(content(0.45)).child(effort)))
+            .child(icon("chevron-down", 12.).text_color(content(0.4)))
+            .on_click(cx.listener(|this, _, _, cx| {
+                if this.menu.take().is_some() {
+                    this._menu_events.clear();
+                    cx.notify();
+                } else {
+                    cx.emit(Event::OpenModelMenu);
+                }
+            }));
+        let send = div()
+            .id("board-ask")
+            .role(Role::Button)
+            .aria_label("Send to the orchestrator")
+            .cursor_pointer()
+            .size(px(30.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .bg(content(if can_ask { 0.92 } else { 0.1 }))
+            .child(icon("arrow-up", 15.).text_color(if can_ask {
+                floating_fill().opacity(1.)
+            } else {
+                content(0.35)
+            }))
+            .on_click(cx.listener(|this, _, _, cx| this.ask(cx)));
         div()
             .flex_shrink_0()
             .px_4()
             .pb_4()
             .pt_2()
             .flex()
-            .flex_col()
-            .items_center()
-            .gap_2()
-            .children(self.reply_strip(cx))
+            .justify_center()
             .child(
                 div()
                     .w_full()
-                    .max_w(px(720.))
-                    .h(px(44.))
-                    .pl_4()
-                    .pr_1p5()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .rounded_xl()
+                    .max_w(px(760.))
+                    .rounded(px(16.))
                     .border_1()
                     .border_color(composer_border(false))
                     .bg(composer_fill())
                     .shadow(composer_shadow())
-                    .child(div().flex_1().min_w_0().child(self.ask.clone()))
+                    .overflow_hidden()
+                    .flex()
+                    .flex_col()
+                    .children(self.reply(cx))
+                    .child(div().px_4().pt_3().pb_1().child(self.ask.clone()))
                     .child(
                         div()
-                            .id("board-ask")
-                            .role(Role::Button)
-                            .aria_label("Send to the orchestrator")
-                            .cursor_pointer()
-                            .size(px(32.))
+                            .px_2()
+                            .pb_2()
                             .flex()
                             .items_center()
-                            .justify_center()
-                            .rounded_lg()
-                            .bg(content(if can_ask { 0.92 } else { 0.12 }))
-                            .child(icon("arrow-up", 16.).text_color(if can_ask {
-                                floating_fill().opacity(1.)
-                            } else {
-                                content(0.4)
-                            }))
-                            .on_click(cx.listener(|this, _, _, cx| this.ask(cx))),
+                            .gap_1()
+                            .child(model_chip)
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .pr_2()
+                                    .text_size(px(11.))
+                                    .text_color(content(0.35))
+                                    .child("Orchestrator plans and starts tasks"),
+                            )
+                            .child(send),
                     ),
             )
             .into_any_element()
@@ -951,7 +1043,10 @@ impl gpui::Render for Board {
             .text_color(content(1.))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
-                    if this.composing {
+                    if this.menu.take().is_some() {
+                        this._menu_events.clear();
+                        cx.notify();
+                    } else if this.composing {
                         this.cancel_compose(cx);
                     } else {
                         cx.emit(Event::Close);
@@ -971,7 +1066,10 @@ impl gpui::Render for Board {
                 )
             })
             .child(body)
-            .when(!self.cwd.is_empty(), |d| d.child(self.message_bar(cx)))
+            .when(!self.cwd.is_empty(), |d| d.child(self.composer(cx)))
+            .children(self.menu.clone().map(|menu| {
+                menu_popover(&menu, Anchor::Slot(self.model_anchor.clone()), cx).side(Side::Top)
+            }))
     }
 }
 

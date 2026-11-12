@@ -2103,6 +2103,12 @@ impl Conversation {
         self.save_settings(cx);
         cx.notify();
     }
+    /// Sets the thinking level from outside the composer and saves it.
+    pub(crate) fn choose_effort(&mut self, effort: Option<String>, cx: &mut Context<Self>) {
+        self.set_effort_choice(effort.as_deref().unwrap_or_default(), cx);
+        self.save_settings(cx);
+        cx.notify();
+    }
     fn set_effort_choice(&mut self, effort: &str, cx: &mut Context<Self>) {
         self.settings
             .model_settings
@@ -2239,7 +2245,7 @@ impl Conversation {
     }
     /// A different provider is armed for the next submission. The running
     /// provider retains its controls, account and immutable turn identity.
-    pub(super) fn apply_model_pick(
+    pub(crate) fn apply_model_pick(
         &mut self,
         picked: &ModelPicked,
         cx: &mut Context<Self>,
@@ -2650,6 +2656,90 @@ impl Conversation {
             }
             ComposerMenu::Setting(ix) => self.mono_setting_menu(ix),
         }
+    }
+    /// The composer's "Model and settings" menu for a host outside this chat,
+    /// such as the board: reasoning, fast, service tier and the provider's
+    /// controls, then Model with its picker. Picks apply to this conversation;
+    /// a model pick closes the menu. The host keeps the subscriptions.
+    pub(crate) fn model_settings_menu(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (Entity<Menu>, Vec<Subscription>) {
+        let provider = Kind::from_id(&self.summary.provider);
+        let menu_cell: std::rc::Rc<std::cell::RefCell<Option<gpui::WeakEntity<Menu>>>> =
+            Default::default();
+        let list = cx.new(|cx| {
+            let hidden = cx
+                .try_global::<crate::settings::Preferences>()
+                .map(|p| p.hidden_for(&self.summary.cwd))
+                .unwrap_or_default();
+            ModelList::new_for(
+                provider,
+                self.model.clone(),
+                &self.summary.cwd,
+                self.settings.account.clone(),
+                cx,
+            )
+            .hide_providers(hidden)
+            .allow_provider_switch(true)
+        });
+        let mut events = vec![cx.subscribe(&list, {
+            let menu_cell = menu_cell.clone();
+            move |this, _, picked: &ModelPicked, cx| {
+                if this.apply_model_pick(picked, cx) {
+                    remember_model(picked.0, picked.1.clone(), cx);
+                    if let Some(menu) = menu_cell.borrow().as_ref().and_then(|m| m.upgrade()) {
+                        menu.update(cx, |_, cx| cx.emit(MenuEvent::Dismissed));
+                    }
+                }
+            }
+        })];
+        let focus = list.read(cx).search_focus(cx);
+        let mut items = self.mono_model_options();
+        items.push(
+            MenuAction::new("model", "Model")
+                .value_image(provider.id())
+                .value(self.model_info().map_or_else(
+                    || model_name(provider, self.model.as_deref()),
+                    |model| model_display_name(provider, &model.id, &model.name),
+                ))
+                .flyout(Flyout {
+                    view: list.into(),
+                    width: 310.,
+                    padding: 0.,
+                    height: Some(442.),
+                    max_height: None,
+                    focus: Some(focus),
+                    surface: None,
+                })
+                .into(),
+        );
+        let menu = cx.new(|cx| {
+            Menu::new("Model and settings", items, window, cx)
+                .width(250.)
+                .style(MenuStyle::Settings)
+        });
+        *menu_cell.borrow_mut() = Some(menu.downgrade());
+        events.push(cx.subscribe(&menu, |this, menu, event: &MenuEvent, cx| {
+            if let MenuEvent::Picked(id, _) = event {
+                let toggle = menu.read(cx).toggle_state(id);
+                this.menu_choice(id, cx);
+                if let Some(on) = toggle {
+                    menu.update(cx, |menu, cx| menu.set_toggle(id, !on, cx));
+                }
+                cx.notify();
+            }
+        }));
+        (menu, events)
+    }
+    /// The model chip's label and its reasoning level, as the composer shows them.
+    pub(crate) fn model_chip(&self) -> (SharedString, Option<SharedString>) {
+        let effort = self
+            .model_info()
+            .is_some_and(|m| !m.efforts.is_empty())
+            .then(|| self.effort_label());
+        (self.model_label(), effort)
     }
     /// The model trigger: the composer's model menu.
     #[cfg(test)]

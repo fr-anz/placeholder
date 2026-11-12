@@ -504,7 +504,9 @@ fn run_turn_using(
             store.save_setting(&seen_key, &digest.text)?;
             let added = if provider_id.is_none() {
                 let mut fresh = monocode_core::board::orchestrator_context(&digest);
-                if turn_start > 0 {
+                if settings.handoff.is_some() {
+                    // A provider switch: the handoff below carries the chat.
+                } else if turn_start > 0 {
                     fresh.push_str("\n\n");
                     fresh.push_str(&monocode_core::mono::rotation_brief(
                         &transcript.rows[..turn_start],
@@ -513,6 +515,14 @@ fn run_turn_using(
                 fresh
             } else {
                 monocode_core::board::digest_changes(&seen, &digest.text)
+            };
+            let prompt = match &settings.handoff {
+                Some(handoff) => monocode_core::response::wrap_handoff_prompt(
+                    &handoff.from,
+                    &handoff.brief,
+                    &prompt,
+                ),
+                None => prompt,
             };
             if added.is_empty() {
                 prompt
