@@ -42,6 +42,25 @@ pub(crate) struct OrchestratorStatus {
     pub reply: String,
 }
 
+/// `native_settings` key of the orchestrator reply last seen on a board.
+const REPLY_SEEN_PREFIX: &str = "fork.board_reply_seen:";
+
+/// The plain-text excerpt the reply card shows, which also identifies a reply.
+fn reply_excerpt(markdown: &str) -> String {
+    let collapsed = plain_excerpt(markdown);
+    let mut reply: String = collapsed.chars().take(240).collect();
+    if collapsed.chars().count() > 240 {
+        reply.push('…');
+    }
+    reply
+}
+
+/// The reply card is hidden unless the orchestrator is working or has a
+/// reply the user has not dismissed or opened.
+fn shows_reply(busy: bool, reply: &str, seen: &str) -> bool {
+    busy || (!reply.is_empty() && reply != seen)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Active,
@@ -64,8 +83,9 @@ pub(crate) struct Board {
     composing: bool,
     /// The mode of the card being composed.
     compose_mode: CardMode,
-    /// The orchestrator's reply above the composer is folded to one line.
-    reply_folded: bool,
+    /// The excerpt of the orchestrator reply last dismissed or opened on this
+    /// project's board, loaded with the cards.
+    reply_seen: String,
     /// Each backlog card's Start arrow, where its menu opens.
     start_anchors: HashMap<String, AnchorSlot>,
     /// The open "Start solo / Start with orchestrator" menu and its card.
@@ -219,7 +239,7 @@ impl Board {
             tab: Tab::Active,
             composing: false,
             compose_mode: CardMode::default(),
-            reply_folded: false,
+            reply_seen: String::new(),
             start_anchors: HashMap::new(),
             start_menu: None,
             _start_menu_events: None,
@@ -292,6 +312,11 @@ impl Board {
                     .collect();
                 // Newest first, like the references.
                 self.cards.sort_by(|a, b| b.number.cmp(&a.number));
+                self.reply_seen = store
+                    .setting(&format!("{REPLY_SEEN_PREFIX}{}", self.cwd))
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 let cards = &self.cards;
                 self.start_anchors.retain(|id, _| cards.iter().any(|c| c.id == *id));
                 for card in cards.iter().filter(|c| c.lead.is_none()) {
@@ -794,21 +819,17 @@ impl Board {
     fn reply(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let status = self.orchestrator.clone()?;
         // A short plain-text excerpt: replies are Markdown.
-        let collapsed = plain_excerpt(&status.reply);
-        let mut reply: String = collapsed.chars().take(240).collect();
-        if collapsed.chars().count() > 240 {
-            reply.push('…');
-        }
-        if reply.is_empty() && !status.busy {
+        let reply = reply_excerpt(&status.reply);
+        let unseen = !reply.is_empty() && reply != self.reply_seen;
+        if !shows_reply(status.busy, &reply, &self.reply_seen) {
             return None;
         }
         let session = status.session;
-        let open = !self.reply_folded;
-        let toggle = div()
-            .id("board-orchestrator-reply-toggle")
+        let open = unseen;
+        let dismiss = div()
+            .id("board-orchestrator-reply-dismiss")
             .role(Role::Button)
-            .aria_label(if open { "Hide the orchestrator's reply" } else { "Show the orchestrator's reply" })
-            .aria_expanded(open)
+            .aria_label("Dismiss the orchestrator's reply")
             .cursor_pointer()
             .flex_shrink_0()
             .size(px(22.))
@@ -817,11 +838,10 @@ impl Board {
             .justify_center()
             .rounded_md()
             .hover(|s| s.bg(content(0.08)))
-            .child(icon(if open { "chevron-down" } else { "chevron-up" }, 13.).text_color(content(0.45)))
+            .child(icon("close", 12.).text_color(content(0.45)))
             .on_click(cx.listener(|this, _, _, cx| {
                 cx.stop_propagation();
-                this.reply_folded = !this.reply_folded;
-                cx.notify();
+                this.mark_reply_seen(cx);
             }));
         let header = div()
             .flex()
@@ -852,7 +872,10 @@ impl Board {
                 .items_start()
                 .gap_2p5()
                 .hover(|s| s.bg(content(0.035)))
-                .on_click(cx.listener(move |_, _, _, cx| cx.emit(Event::OpenSession(session))))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.mark_reply_seen(cx);
+                    cx.emit(Event::OpenSession(session))
+                }))
                 .child(
                     div()
                         .mt(px(1.))
@@ -885,7 +908,7 @@ impl Board {
                             )
                         }),
                 )
-                .child(toggle)
+                .when(unseen, |d| d.child(dismiss))
                 .into_any_element(),
         )
     }
@@ -925,6 +948,23 @@ impl Board {
                     }))
             }))
             .into_any_element()
+    }
+
+    /// Hides the current reply until the orchestrator writes a new one.
+    fn mark_reply_seen(&mut self, cx: &mut Context<Self>) {
+        let Some(status) = &self.orchestrator else {
+            return;
+        };
+        let reply = reply_excerpt(&status.reply);
+        if reply.is_empty() || reply == self.reply_seen {
+            return;
+        }
+        let key = format!("{REPLY_SEEN_PREFIX}{}", self.cwd);
+        if let Err(error) = locked(&self.store).and_then(|s| s.save_setting(&key, &reply)) {
+            self.error = Some(error);
+        }
+        self.reply_seen = reply;
+        cx.notify();
     }
 
     /// Start, in the card's mode, with an arrow for "Start solo" and
@@ -1135,6 +1175,16 @@ impl gpui::Render for Board {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_reply_card_shows_only_while_working_or_until_seen() {
+        use super::shows_reply;
+        assert!(!shows_reply(false, "", ""), "no reply, nothing to show");
+        assert!(shows_reply(false, "Done.", ""), "a new reply shows");
+        assert!(!shows_reply(false, "Done.", "Done."), "a seen reply stays hidden");
+        assert!(shows_reply(true, "Done.", "Done."), "working shows the card again");
+        assert!(shows_reply(false, "Next step.", "Done."), "the next reply shows");
+    }
+
     #[test]
     fn previews_read_markdown_as_prose() {
         let reply = "## Step 1: tighten the loop\n\nKeep **rows** `retained`.\n\n- one\n- two\n\n```rust\nfn x() {}\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";

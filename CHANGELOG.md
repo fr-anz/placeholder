@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings → Agents → Decide on every task** asks the decider before every merge instead of only on failures.
 - Board cards can be **Solo** or **Orchestrate**. A solo card goes straight to one implementer, on the **implement** agent, with review and merge as usual and no planning turn; an orchestrated card gets a coordinator that plans several workers. A backlog card's **Start** uses its mode, and its arrow offers **Start solo** or **Start with orchestrator**. The new-card form sets a card's mode up front.
 - The board's message bar is now the full chat composer of the board orchestrator: attach files and images, paste screenshots, pick the model, and use slash commands. Pick **/solo** or **/orchestrator** from its **+** menu or by typing them to set how the cards it creates are worked; with neither, the orchestrator decides per card. The choice stays until you change it. Chat-only modes (Plan, Operator) and the checkout picker are not shown there.
-- The orchestrator's latest reply above the board composer matches the composer's width, takes less room, and folds to one line with its chevron.
+- The orchestrator's reply card above the board composer shows only while it is working or when it has a reply you have not seen; dismiss it with × or by opening the chat, and it stays hidden until the next reply. It matches the composer's width and takes less room.
 - **Settings → Worktrees → Agent run setup** sets, per project, a setup command for new worktrees, ignored files to copy into them, and a check command to run after each merge. A team can commit the same settings as `.placeholder/orchestration.json`.
 
 ### Changed
