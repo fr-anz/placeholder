@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-13
+
+First release of Placeholder, forked from MonoCode Native 0.16.0. Earlier entries below are upstream's.
+
 ### Added
 
 - Orchestrated runs in a Git project give each assignment its own worktree, run up to four at once, and merge approved work one at a time into a separate integration branch, after an optional check command. Uncommitted work is included when a run starts. Nothing is merged into your branch: the run ends with the integration branch for you to review.
@@ -17,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Board cards can be **Solo** or **Orchestrate**. A solo card goes straight to one implementer, on the **implement** agent, with review and merge as usual and no planning turn; an orchestrated card gets a coordinator that plans several workers. A backlog card's **Start** uses its mode, and its arrow offers **Start solo** or **Start with orchestrator**. The new-card form sets a card's mode up front.
 - The board's message bar is now the full chat composer of the board orchestrator: attach files and images, paste screenshots, pick the model, and use slash commands. Pick **/solo** or **/orchestrator** from its **+** menu or by typing them to set how the cards it creates are worked; with neither, the orchestrator decides per card. The choice stays until you change it. Chat-only modes (Plan, Operator) and the checkout picker are not shown there.
 - The orchestrator's reply card above the board composer shows only while it is working or when it has a reply you have not seen; dismiss it with × or by opening the chat, and it stays hidden until the next reply. It matches the composer's width and takes less room.
+- Downloads for Linux (AppImage), Windows (.exe) and macOS (.dmg, Apple silicon and Intel), built by the Release workflow. They are not code-signed.
 - **Settings → Worktrees → Agent run setup** sets, per project, a setup command for new worktrees, ignored files to copy into them, and a check command to run after each merge. A team can commit the same settings as `.placeholder/orchestration.json`.
 
 ### Changed

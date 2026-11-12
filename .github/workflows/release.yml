@@ -1,0 +1,166 @@
+name: Release
+
+# Builds Placeholder for Linux (AppImage), Windows (.exe) and macOS (.dmg,
+# universal) and attaches them to a draft GitHub release. Push a tag such as
+# v0.1.0, or run it by hand with a version.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v, such as 0.1.0"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  MANIFEST: crates/monocode-gpui/Cargo.toml
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || { echo "Bad version: $version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: version
+    # The oldest supported runner: the AppImage needs glibc at least this new.
+    runs-on: ubuntu-22.04
+    env:
+      # The app's displayed version. The crate version stays upstream's: it
+      # picks the MonoCode Host release that SSH remotes download.
+      MONOCODE_NATIVE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/monocode-gpui
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang cmake libdbus-1-dev libsystemd-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-xkb-dev \
+            libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev \
+            libssl-dev libzstd-dev libasound2-dev file
+      - name: Build
+        run: cargo build --locked --release --manifest-path "$MANIFEST" -p monocode-gpui
+      - name: Package AppImage
+        run: scripts/package-appimage.sh "$MONOCODE_NATIVE_VERSION" crates/monocode-gpui/target/release/monocode-gpui dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    env:
+      MONOCODE_NATIVE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/monocode-gpui
+      - name: Build
+        shell: bash
+        run: cargo build --locked --release --manifest-path "$MANIFEST" -p monocode-gpui
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp crates/monocode-gpui/target/release/monocode-gpui.exe "dist/Placeholder-$MONOCODE_NATIVE_VERSION-x86_64.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.exe
+          if-no-files-found: error
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    env:
+      MONOCODE_NATIVE_VERSION: ${{ needs.version.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/monocode-gpui
+      - name: Build Apple silicon
+        run: cargo build --locked --release --manifest-path "$MANIFEST" -p monocode-gpui --target aarch64-apple-darwin
+      - name: Build Intel
+        run: cargo build --locked --release --manifest-path "$MANIFEST" -p monocode-gpui --target x86_64-apple-darwin
+      - name: Package
+        run: |
+          target=crates/monocode-gpui/target
+          lipo -create -output placeholder-universal \
+            "$target/aarch64-apple-darwin/release/monocode-gpui" \
+            "$target/x86_64-apple-darwin/release/monocode-gpui"
+          scripts/package-macos.sh "$MONOCODE_NATIVE_VERSION" placeholder-universal dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: [version, linux, windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS
+      - name: Notes from the changelog
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          [[ -s notes.md ]] || echo "Placeholder $VERSION" > notes.md
+          cat >> notes.md <<'EOF'
+
+          ### Installing
+          - **Linux:** download the `.AppImage`, make it executable (`chmod +x`), and run it.
+          - **Windows:** run the `.exe`. It is not code-signed, so SmartScreen may ask you to confirm ("More info" → "Run anyway").
+          - **macOS:** open the `.dmg` and drag Placeholder to Applications. It is not notarized: on first launch, allow it under System Settings → Privacy & Security, or right-click the app and choose Open.
+          EOF
+      - name: Draft release
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* --draft --title "Placeholder $VERSION" \
+              --notes-file notes.md --target "$GITHUB_SHA"
+          fi
