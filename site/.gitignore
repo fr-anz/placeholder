@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# Cloudflare local preview state
+/.wrangler/
+
 # production
 /build
 

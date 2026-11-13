@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Placeholder website
 
-## Getting Started
+Next.js landing and download pages. The production build is a static export;
+it needs no Node.js server, Workers adapter, or Pages Functions.
 
-First, run the development server:
+## Local development
 
-```bash
+Use Node.js 22, then run from `site/`:
+
+```sh
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deploy to Cloudflare Pages
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Commit and push the website configuration to GitHub. In Cloudflare's dashboard,
+open **Workers & Pages → Create application → Pages → Import an existing Git
+repository** and select `fr-anz/placeholder`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Use these build settings (paths are relative to the selected root directory):
 
-## Learn More
+| Setting | Value |
+| --- | --- |
+| Production branch | `main` |
+| Root directory | `site` |
+| Framework preset | Next.js (Static HTML Export) |
+| Build command | `npm run build` |
+| Build output directory | `out` |
 
-To learn more about Next.js, take a look at the following resources:
+Pages installs dependencies automatically. `site/.node-version` selects Node.js
+22. Do not use `.next` as the output directory or add a Worker deploy command.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+If using a custom domain, set the build environment variable
+`NEXT_PUBLIC_SITE_URL` to its full origin, for example `https://example.com`.
+Without it, the build uses Cloudflare's `CF_PAGES_URL` for social image URLs.
+After deploying, attach the domain under the Pages project's **Custom domains**
+tab. Rebuild after changing the origin.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Select **Save and Deploy**. Pages provides a `*.pages.dev` URL and automatically
+deploys subsequent pushes to `main`. Check both `/` and `/download` directly,
+then follow the download button from the homepage.
 
-## Deploy on Vercel
+See [Cloudflare's Next.js static site guide](https://developers.cloudflare.com/pages/framework-guides/nextjs/deploy-a-static-nextjs-site/).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Verify the production export locally
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```sh
+npm run lint
+npm run build
+npx wrangler@4 pages dev out
+```
+
+The build writes `out/index.html`, `out/download.html`, `out/404.html`, and the
+supporting assets. `next start` is not used with a static export.
+
+Browser checks against a running local site:
+
+```sh
+SITE_URL=http://localhost:8788 CHROME_BIN=/path/to/chromium npm run test:diagram
+```
+
+The download buttons point to GitHub release assets configured in `lib/site.ts`;
+Cloudflare hosts the website, while GitHub hosts the application installers.

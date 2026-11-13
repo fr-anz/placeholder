@@ -18,8 +18,8 @@ const jetbrainsMono = localFont({
   display: "swap",
 });
 
-// Set NEXT_PUBLIC_SITE_URL to the deployed origin so share images resolve.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+// Prefer the custom domain; Pages supplies its deployment URL during builds.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.CF_PAGES_URL;
 
 export const metadata: Metadata = {
   metadataBase: siteUrl ? new URL(siteUrl) : undefined,

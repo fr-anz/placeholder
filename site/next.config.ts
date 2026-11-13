@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Cloudflare Pages serves the generated HTML, JavaScript, and assets directly.
+  output: "export",
+  images: { unoptimized: true },
 };
 
 export default nextConfig;

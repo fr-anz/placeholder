@@ -5,7 +5,6 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
     "lint": "eslint",
     "test:hydration": "node scripts/check-hydration.mjs",
     "test:diagram": "node scripts/check-run-graph.mjs"
