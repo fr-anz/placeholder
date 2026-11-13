@@ -1,0 +1,1 @@
+Placeholder showing a Claude Code conversation beside the files it changed.

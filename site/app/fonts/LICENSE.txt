@@ -1,0 +1,3 @@
+Archivo (Omnibus-Type) and JetBrains Mono (JetBrains) are distributed under the
+SIL Open Font License 1.1: https://openfontlicense.org
+Both files are the latin subsets served by Google Fonts.
